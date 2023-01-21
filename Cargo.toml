@@ -1,0 +1,32 @@
+[package]
+name = "erroccfisumreg"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vulkano = "0.32"
+# Provides the `shader!` macro that is used to generate code for using shaders.
+vulkano-shaders = "0.32"
+# The Vulkan library doesn't provide any functionality to create and handle windows, as
+# this would be out of scope. In order to open a window, we are going to use the `winit` crate.
+winit = "0.27"
+# The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
+# and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
+vulkano-win = "0.32"
+vulkano-util = "0.32"
+
+obj = "0.10"
+bytemuck = { version = "1.13", features = [
+    "derive",
+    "extern_crate_std",
+    "min_const_generics",
+] }
+
+cgmath = "0.18"
+
+rodio = "0.16"
+
+egui = "0.20"
+egui_winit_vulkano = "0.22"
