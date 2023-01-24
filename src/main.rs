@@ -16,23 +16,24 @@
 // and that you want to learn Vulkan. This means that for example it won't go into details about
 // what a vertex or a shader is.
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
+use cgmath::{
+    AbsDiffEq, Basis3, Deg, EuclideanSpace, Euler, Matrix3, Matrix4, Point3, Quaternion, Rad,
+    SquareMatrix, Transform, Vector3,
+};
 use obj::{LoadConfig, ObjData};
 use rodio::{source::Source, Decoder, OutputStream};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
-use vulkano::buffer::CpuBufferPool;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::device::QueueFlags;
 use vulkano::format::Format;
 use vulkano::image::AttachmentImage;
-use vulkano::memory::allocator::{MemoryAllocator, MemoryUsage, StandardMemoryAllocator};
+use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::rasterization::CullMode;
 use vulkano::pipeline::graphics::rasterization::FrontFace::Clockwise;
-use vulkano::swapchain::SwapchainPresentInfo;
-use vulkano::{memory, VulkanLibrary};
+use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
+use vulkano::VulkanLibrary;
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, VirtualKeyCode};
 
 use egui_winit_vulkano::Gui;
 use vulkano::pipeline::StateMode::Fixed;
@@ -41,7 +42,6 @@ use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
     },
@@ -55,7 +55,7 @@ use vulkano::{
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
+        GraphicsPipeline, Pipeline,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     swapchain::{
@@ -69,6 +69,9 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
+use crate::gui::*;
+mod gui;
 
 fn main() {
     // The first step of any Vulkan program is to create an instance.
@@ -213,9 +216,6 @@ fn main() {
     // iterator.
     let queue = queues.next().expect("Unable to retrieve queues");
 
-    // Create an egui GUI
-    let mut gui = Gui::new(&event_loop, surface.clone(), None, queue.clone(), false);
-
     // Before we can draw on the surface, we have to create what is called a swapchain. Creating
     // a swapchain allocates the color buffers that will contain the image that will ultimately
     // be visible on the screen. These images are returned alongside the swapchain.
@@ -275,6 +275,8 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
+
+                present_mode: PresentMode::FifoRelaxed,
 
                 ..Default::default()
             },
@@ -393,7 +395,7 @@ fn main() {
     // The next step is to create a *render pass*, which is an object that describes where the
     // output of the graphics pipeline will go. It describes the layout of the images
     // where the colors, depth and/or stencil information will be written.
-    let render_pass = vulkano::single_pass_renderpass!(
+    let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
             // `color` is a custom name we give to the first and only attachment.
@@ -421,12 +423,19 @@ fn main() {
                 samples: 1,
             }
         },
-        pass: {
+        passes: [{
             // We use the attachment named `color` as the one and only color attachment.
             color: [color],
             // No depth-stencil attachment is indicated with empty brackets.
-            depth_stencil: {depth}
-        }
+            depth_stencil: {depth},
+            input: []
+        },{
+            // We use the attachment named `color` as the one and only color attachment.
+            color: [color],
+            // No depth-stencil attachment is indicated with empty brackets.
+            depth_stencil: {depth},
+            input: []
+        }]
     )
     .unwrap();
 
@@ -504,6 +513,7 @@ fn main() {
     // that, we store the submission of the previous frame here.
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+    /*
     // Get a output stream handle to the default physical sound device
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     // Load a sound from a file, using a path relative to Cargo.toml
@@ -512,24 +522,101 @@ fn main() {
     let source = Decoder::new(freebird).unwrap().repeat_infinite();
     // Play the sound directly on the device
     stream_handle.play_raw(source.convert_samples()).unwrap();
+    */
 
     let rotation_start = Instant::now();
 
     //let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
 
+    // Create an egui GUI
+    let mut gui = Gui::new_with_subpass(
+        &event_loop,
+        surface.clone(),
+        None,
+        queue.clone(),
+        Subpass::from(render_pass.clone(), 1).unwrap(),
+    );
+
+    let mut gstate = GState::default();
+
+    let mut campos = Point3 {
+        x: 0f32,
+        y: 0f32,
+        z: 3f32,
+    };
+
+    let mut camforward = Euler::new(Deg(0f32), Deg(0f32), Deg(0f32));
+
+    let mut looking = false;
+    struct Keys {
+        w: bool,
+        s: bool,
+        a: bool,
+        d: bool,
+    }
+    let mut keys = Keys {
+        w: false,
+        s: false,
+        a: false,
+        d: false,
+    };
+
     event_loop.run(move |event, _, control_flow| {
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
+        if let Event::WindowEvent { event: we, .. } = &event {
+            if !gui.update(we) {
+                match &we {
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    WindowEvent::Resized(_) => {
+                        recreate_swapchain = true;
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        recreate_swapchain = true;
+                    }
+                    WindowEvent::DroppedFile(file) => {
+                        todo!()
+                    }
+                    WindowEvent::MouseInput {
+                        device_id: d,
+                        state: s,
+                        button: b,
+                        ..
+                    } => {
+                        println!("MOUSE {:?}, {:?}, {:?}", d, s, b);
+                        if b == &MouseButton::Right {
+                            looking = s == &ElementState::Pressed;
+                        }
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
+                        Some(VirtualKeyCode::W) => {
+                            keys.w = input.state == ElementState::Pressed;
+                        }
+                        Some(VirtualKeyCode::S) => {
+                            keys.s = input.state == ElementState::Pressed;
+                        }
+                        Some(VirtualKeyCode::A) => {
+                            keys.a = input.state == ElementState::Pressed;
+                        }
+                        Some(VirtualKeyCode::D) => {
+                            keys.d = input.state == ElementState::Pressed;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
             }
-            Event::WindowEvent {
-                event: WindowEvent::Resized(_),
+        }
+        match event {
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion { delta },
                 ..
             } => {
-                recreate_swapchain = true;
+                if looking {
+                    camforward.x -= Deg(delta.1 as f32) * gstate.cursor_sensitivity;
+                    camforward.y += Deg(delta.0 as f32) * gstate.cursor_sensitivity;
+                }
+                //println!("AXISM {:?}", delta);
             }
             Event::RedrawEventsCleared => {
                 // Do not draw frame when screen dimensions are zero.
@@ -575,11 +662,44 @@ fn main() {
                     recreate_swapchain = false;
                 }
 
+                //println!("{:?}", right);
+
                 let uniform_data = {
-                    let elapsed = rotation_start.elapsed();
-                    let rotation =
-                        elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
-                    let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
+                    if looking {
+                        if keys.w {
+                            campos -= Matrix3::from_angle_y(camforward.y)
+                                * Matrix3::from_angle_x(camforward.x)
+                                * Vector3::unit_z()
+                                * 0.02
+                                * gstate.move_speed;
+                        }
+                        if keys.s {
+                            campos += Matrix3::from_angle_y(camforward.y)
+                                * Matrix3::from_angle_x(camforward.x)
+                                * Vector3::unit_z()
+                                * 0.02
+                                * gstate.move_speed;
+                        }
+                        if keys.a {
+                            campos += Matrix3::from_angle_y(camforward.y)
+                                * Matrix3::from_angle_x(camforward.x)
+                                * Vector3::unit_x()
+                                * 0.02
+                                * gstate.move_speed;
+                        }
+                        if keys.d {
+                            campos -= Matrix3::from_angle_y(camforward.y)
+                                * Matrix3::from_angle_x(camforward.x)
+                                * Vector3::unit_x()
+                                * 0.02
+                                * gstate.move_speed;
+                        }
+                    } else {
+                        keys.w = false;
+                        keys.s = false;
+                        keys.a = false;
+                        keys.d = false;
+                    }
 
                     // note: this teapot was meant for OpenGL where the origin is at the lower left
                     //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
@@ -591,25 +711,28 @@ fn main() {
                         0.01,
                         100.0,
                     );
-                    let view = Matrix4::look_at_rh(
-                        Point3::new(0.3, 0.3, 1.0),
-                        Point3::new(0.0, 0.0, 0.0),
-                        Vector3::new(0.0, -1.0, 0.0),
-                    );
-                    let scale = Matrix4::from_scale(0.01);
+                    let scale = 0.01;
+                    let view = Matrix4::from(camforward)
+                        * Matrix4::from_angle_z(Deg(180f32))
+                        * Matrix4::from_translation(Point3::origin() - campos)
+                        * Matrix4::from_scale(scale);
+                    //*Matrix4::from_angle_z(Deg(180f32));
 
-                    vs::ty::PushConstantData {
-                        world: Matrix4::from(rotation).into(),
-                        view: (view * scale).into(),
+                    let pc = vs::ty::PushConstantData {
+                        world: Matrix4::identity().into(),
+                        view: view.into(),
                         proj: proj.into(),
+                    };
+
+                    if looking {
+                        /*println!(
+                            "world: {:?} view: {:?} proj: {:?}",
+                            pc.world, pc.view, pc.proj
+                        );*/
+                        println!("campos: {:?} camforward: {:?}", campos, camforward);
                     }
 
-                    /*println!(
-                        "world: {:?} view: {:?} proj: {:?}",
-                        uniform_data.world, uniform_data.view, uniform_data.proj
-                    );*/
-
-                    //uniform_buffer.from_data(uniform_data).unwrap()
+                    pc
                 };
 
                 //let layout = pipeline.layout().set_layouts().get(0).unwrap();
@@ -644,6 +767,8 @@ fn main() {
                     recreate_swapchain = true;
                 }
 
+                gui_up(&mut gui, &mut gstate);
+
                 // In order to draw, we have to build a *command buffer*. The command buffer object holds
                 // the list of commands that are going to be executed.
                 //
@@ -659,6 +784,8 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+
+                let cb = gui.draw_on_subpass_image(dimensions.into());
 
                 builder
                     // Before we can draw, we have to *enter a render pass*.
@@ -702,6 +829,10 @@ fn main() {
                     .unwrap()
                     // We leave the render pass. Note that if we had multiple
                     // subpasses we could have called `next_subpass` to jump to the next subpass.
+                    .next_subpass(SubpassContents::SecondaryCommandBuffers)
+                    .unwrap()
+                    .execute_commands(cb)
+                    .unwrap()
                     .end_render_pass()
                     .unwrap();
 
