@@ -286,7 +286,7 @@ fn main() {
                     .next()
                     .unwrap(),
 
-                present_mode: PresentMode::FifoRelaxed,
+                present_mode: PresentMode::Fifo,
 
                 ..Default::default()
             },
