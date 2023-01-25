@@ -24,13 +24,19 @@ use obj::{LoadConfig, ObjData};
 use rodio::{source::Source, Decoder, OutputStream};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
+use vulkano::buffer::CpuBufferPool;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+use vulkano::device::DeviceOwned;
 use vulkano::format::Format;
 use vulkano::image::AttachmentImage;
-use vulkano::memory::allocator::StandardMemoryAllocator;
+use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::rasterization::CullMode;
 use vulkano::pipeline::graphics::rasterization::FrontFace::Clockwise;
+use vulkano::pipeline::PipelineBindPoint;
+use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
 use vulkano::VulkanLibrary;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, VirtualKeyCode};
@@ -70,8 +76,12 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::gui::*;
 mod gui;
+use crate::gui::*;
+mod objects;
+use crate::objects::*;
+
+pub type MemoryAllocator = StandardMemoryAllocator;
 
 fn main() {
     // The first step of any Vulkan program is to create an instance.
@@ -81,7 +91,7 @@ fn main() {
     // All the window-drawing functionalities are part of non-core extensions that we need
     // to enable manually. To do so, we ask the `vulkano_win` crate for the list of extensions
     // required to draw to a window.
-    let library = VulkanLibrary::new().unwrap();
+    let library = VulkanLibrary::new().expect("Vulkan is not installed???");
     let required_extensions = vulkano_win::required_extensions(&library);
 
     // Now creating the instance.
@@ -284,50 +294,6 @@ fn main() {
         .unwrap()
     };
 
-    const OBJ: &[u8] = include_bytes!("bunny.obj");
-
-    let buny = ObjData::load_buf_with_config(OBJ, LoadConfig::default()).unwrap();
-
-    let polys = &buny.objects[0].groups[0].polys;
-
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-
-    // We now create a buffer that will store the shape of our triangle.
-    // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
-    // particular example, it doesn't actually change the in-memory representation.
-    #[repr(C)]
-    #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-    struct Vertex {
-        position: [f32; 3],
-        normal: [f32; 3],
-    }
-    impl_vertex!(Vertex, position, normal);
-
-    let vertices = polys
-        .iter()
-        .flat_map(|p| {
-            p.0.iter()
-                .map(|v| Vertex {
-                    position: buny.position[v.0],
-                    normal: v
-                        .2
-                        .and_then(|vt| Some(buny.normal[vt]))
-                        .unwrap_or([0.0, 0.0, 0.0]),
-                })
-                .collect::<Vec<Vertex>>()
-        })
-        .collect::<Vec<Vertex>>();
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(
-        &memory_allocator,
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::empty()
-        },
-        false,
-        vertices,
-    )
-    .unwrap();
-
     // The next step is to create the shaders.
     //
     // The raw shader creation API provided by the vulkano library is unsafe for various
@@ -344,7 +310,7 @@ fn main() {
     //
     // A more detailed overview of what the `shader!` macro generates can be found in the
     // `vulkano-shaders` crate docs. You can view them at https://docs.rs/vulkano-shaders/
-    mod vs {
+    mod mesh_vs {
         vulkano_shaders::shader! {
             ty: "vertex",
             src: "
@@ -363,7 +329,7 @@ fn main() {
                 
                 void main() {
                     mat4 worldview = pc.view * pc.world;
-                    v_normal = normalize(transpose(inverse(mat3(worldview))) * normal);
+                    v_normal = normal; //normalize(transpose(inverse(mat3(worldview))) * normal);
                     gl_Position = pc.proj * worldview * vec4(position*1000.0, 1.0);
                 }
 			",
@@ -375,18 +341,25 @@ fn main() {
         }
     }
 
-    mod fs {
+    mod mesh_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "src/frag.glsl"
+            path: "src/frag.glsl",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+
+                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
+            },
         }
     }
 
-    let vs = vs::load(device.clone()).unwrap();
-    let fs = fs::load(device.clone()).unwrap();
+    let mesh_vs = mesh_vs::load(device.clone()).unwrap();
+    let mesh_fs = mesh_fs::load(device.clone()).unwrap();
 
     /*let uniform_buffer =
     CpuBufferPool::<vs::ty::PushConstantData>::uniform_buffer(memory_allocator);*/
+
+    let memory_allocator = Arc::new(MemoryAllocator::new_default(device.clone()));
 
     // At this point, OpenGL initialization would be finished. However in Vulkan it is not. OpenGL
     // implicitly does a lot of computation whenever you draw. In Vulkan, you have to do all this
@@ -439,33 +412,6 @@ fn main() {
     )
     .unwrap();
 
-    // Before we draw we have to create what is called a pipeline. This is similar to an OpenGL
-    // program, but much more specific.
-    let pipeline = GraphicsPipeline::start()
-        // We have to indicate which subpass of which render pass this pipeline is going to be used
-        // in. The pipeline will only be usable from this particular subpass.
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        // We need to indicate the layout of the vertices.
-        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-        // The content of the vertex buffer describes a list of triangles.
-        .input_assembly_state(InputAssemblyState::new())
-        // A Vulkan shader can in theory contain multiple entry points, so we have to specify
-        // which one.
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
-        // Use a resizable viewport set to draw over the entire window
-        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-        // See `vertex_shader`.
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .rasterization_state(RasterizationState {
-            front_face: Fixed(Clockwise),
-            cull_mode: Fixed(CullMode::Back),
-            ..RasterizationState::default()
-        })
-        // Now that our builder is filled, we call `build()` to obtain an actual pipeline.
-        .build(device.clone())
-        .unwrap();
-
     // Dynamic viewports allow us to recreate just the viewport when the window is resized
     // Otherwise we would have to recreate the whole pipeline.
     let mut viewport = Viewport {
@@ -479,8 +425,10 @@ fn main() {
     //
     // Since we need to draw to multiple images, we are going to create a different framebuffer for
     // each image.
-    let mut framebuffers = window_size_dependent_setup(
+    let ([mut mesh_pipeline], mut framebuffers) = window_size_dependent_setup(
         &memory_allocator,
+        &mesh_vs,
+        &mesh_fs,
         &images,
         render_pass.clone(),
         &mut viewport,
@@ -524,9 +472,18 @@ fn main() {
     stream_handle.play_raw(source.convert_samples()).unwrap();
     */
 
-    let rotation_start = Instant::now();
+    let mut render_start = Instant::now();
 
-    //let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+
+    let uniform_buffer = CpuBufferPool::<mesh_fs::ty::Data>::new(
+        memory_allocator.clone(),
+        BufferUsage {
+            uniform_buffer: true,
+            ..BufferUsage::empty()
+        },
+        MemoryUsage::Upload,
+    );
 
     // Create an egui GUI
     let mut gui = Gui::new_with_subpass(
@@ -560,6 +517,19 @@ fn main() {
         a: false,
         d: false,
     };
+
+    gstate.meshes.push(load_obj(
+        &memory_allocator,
+        &mut Cursor::new(PLATONIC_SOLIDS[0].1),
+        PLATONIC_SOLIDS[0].0.to_string(),
+    ));
+
+    gstate
+        .lights
+        .push(Light::new([4., 6., 8.], [1., 1., 8.], 0.01));
+    gstate
+        .lights
+        .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.01));
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::WindowEvent { event: we, .. } = &event {
@@ -613,12 +583,23 @@ fn main() {
                 ..
             } => {
                 if looking {
-                    camforward.x -= Deg(delta.1 as f32) * gstate.cursor_sensitivity;
-                    camforward.y += Deg(delta.0 as f32) * gstate.cursor_sensitivity;
+                    camforward.x -= Deg(delta.1 as f32) * gstate.cursor_sensitivity * 0.3;
+                    camforward.y += Deg(delta.0 as f32) * gstate.cursor_sensitivity * 0.3;
+                    camforward.x = camforward.x + Deg(360f32) % Deg(360f32);
+                    camforward.y = camforward.y + Deg(360f32) % Deg(360f32);
                 }
                 //println!("AXISM {:?}", delta);
             }
             Event::RedrawEventsCleared => {
+                for i in 1..gstate.fps.len() {
+                    gstate.fps[i - 1] = gstate.fps[i];
+                }
+
+                gstate.fps[gstate.fps.len() - 1] =
+                    1.0 / (Instant::now() - render_start).as_secs_f64();
+
+                render_start = Instant::now();
+
                 // Do not draw frame when screen dimensions are zero.
                 // On Windows, this can occur from minimizing the application.
                 let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
@@ -653,8 +634,10 @@ fn main() {
                     swapchain = new_swapchain;
                     // Because framebuffers contains an Arc on the old swapchain, we need to
                     // recreate framebuffers as well.
-                    framebuffers = window_size_dependent_setup(
+                    ([mesh_pipeline], framebuffers) = window_size_dependent_setup(
                         &memory_allocator,
+                        &mesh_vs,
+                        &mesh_fs,
                         &new_images,
                         render_pass.clone(),
                         &mut viewport,
@@ -664,7 +647,7 @@ fn main() {
 
                 //println!("{:?}", right);
 
-                let uniform_data = {
+                let mut push_constants = {
                     if looking {
                         if keys.w {
                             campos -= Matrix3::from_angle_y(camforward.y)
@@ -718,7 +701,7 @@ fn main() {
                         * Matrix4::from_scale(scale);
                     //*Matrix4::from_angle_z(Deg(180f32));
 
-                    let pc = vs::ty::PushConstantData {
+                    let pc = mesh_vs::ty::PushConstantData {
                         world: Matrix4::identity().into(),
                         view: view.into(),
                         proj: proj.into(),
@@ -735,13 +718,35 @@ fn main() {
                     pc
                 };
 
-                //let layout = pipeline.layout().set_layouts().get(0).unwrap();
-                /*let set = PersistentDescriptorSet::new(
-                    &memory_allocator,
+                let uniform_buffer_subbuffer = {
+                    let mut pos = [[0f32; 4]; 32];
+                    let mut col = [[0f32; 4]; 32];
+
+                    for (i, light) in gstate.lights.iter().enumerate() {
+                        pos[i][0] = light.pos.x;
+                        pos[i][1] = light.pos.y;
+                        pos[i][2] = light.pos.z;
+                        col[i][0] = light.colour.x;
+                        col[i][1] = light.colour.y;
+                        col[i][2] = light.colour.z;
+                    }
+
+                    let uniform_data = mesh_fs::ty::Data {
+                        pos,
+                        col,
+                        light_count: gstate.lights.len() as u32,
+                    };
+
+                    uniform_buffer.from_data(uniform_data).unwrap()
+                };
+
+                let layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
+                let set = PersistentDescriptorSet::new(
+                    &descriptor_set_allocator,
                     layout.clone(),
                     [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
                 )
-                .unwrap();*/
+                .unwrap();
 
                 // Before we can draw on the output, we have to *acquire* an image from the swapchain. If
                 // no image is available (which happens if you submit draw commands too quickly), then the
@@ -816,19 +821,31 @@ fn main() {
                     // The last two parameters contain the list of resources to pass to the shaders.
                     // Since we used an `EmptyPipeline` object, the objects have to be `()`.
                     .set_viewport(0, [viewport.clone()])
-                    .bind_pipeline_graphics(pipeline.clone())
-                    /*.bind_descriptor_sets(
+                    .bind_pipeline_graphics(mesh_pipeline.clone())
+                    .bind_descriptor_sets(
                         PipelineBindPoint::Graphics,
-                        pipeline.layout().clone(),
+                        mesh_pipeline.layout().clone(),
                         0,
                         set,
-                    )*/
-                    .bind_vertex_buffers(0, vertex_buffer.clone())
-                    .push_constants(pipeline.layout().clone(), 0, uniform_data)
-                    .draw(vertex_buffer.len() as u32, 1, 0, 0)
-                    .unwrap()
-                    // We leave the render pass. Note that if we had multiple
-                    // subpasses we could have called `next_subpass` to jump to the next subpass.
+                    );
+
+                for object in &gstate.meshes {
+                    push_constants.world =
+                        (Matrix4::from_translation(object.pos - Point3::origin())
+                            * Matrix4::from(object.rot)
+                            * object.scale)
+                            .into();
+                    builder
+                        .bind_vertex_buffers(0, object.vertices.clone())
+                        .bind_index_buffer(object.indices.clone())
+                        .push_constants(mesh_pipeline.layout().clone(), 0, push_constants)
+                        .draw_indexed(object.indices.len() as u32, 1, 0, 0, 0)
+                        .unwrap();
+                }
+
+                // We leave the render pass. Note that if we had multiple
+                // subpasses we could have called `next_subpass` to jump to the next subpass.
+                builder
                     .next_subpass(SubpassContents::SecondaryCommandBuffers)
                     .unwrap()
                     .execute_commands(cb)
@@ -879,10 +896,12 @@ fn main() {
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
     allocator: &StandardMemoryAllocator,
+    mesh_vs: &ShaderModule,
+    mesh_fs: &ShaderModule,
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-) -> Vec<Arc<Framebuffer>> {
+) -> ([Arc<GraphicsPipeline>; 1], Vec<Arc<Framebuffer>>) {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
@@ -891,7 +910,7 @@ fn window_size_dependent_setup(
     )
     .unwrap();
 
-    images
+    let framebuffers = images
         .iter()
         .map(|image| {
             let view = ImageView::new_default(image.clone()).unwrap();
@@ -904,5 +923,39 @@ fn window_size_dependent_setup(
             )
             .unwrap()
         })
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+
+    // Before we draw we have to create what is called a pipeline. This is similar to an OpenGL
+    // program, but much more specific.
+    let mesh_pipeline = GraphicsPipeline::start()
+        // We have to indicate which subpass of which render pass this pipeline is going to be used
+        // in. The pipeline will only be usable from this particular subpass.
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        // We need to indicate the layout of the vertices.
+        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+        // The content of the vertex buffer describes a list of triangles.
+        .input_assembly_state(InputAssemblyState::new())
+        // A Vulkan shader can in theory contain multiple entry points, so we have to specify
+        // which one.
+        .vertex_shader(mesh_vs.entry_point("main").unwrap(), ())
+        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            },
+        ]))
+        // See `vertex_shader`.
+        .fragment_shader(mesh_fs.entry_point("main").unwrap(), ())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .rasterization_state(RasterizationState {
+            front_face: Fixed(Clockwise),
+            cull_mode: Fixed(CullMode::Back),
+            ..RasterizationState::default()
+        })
+        // Now that our builder is filled, we call `build()` to obtain an actual pipeline.
+        .build(allocator.device().clone())
+        .unwrap();
+
+    ([mesh_pipeline], framebuffers)
 }
