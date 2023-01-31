@@ -4,8 +4,8 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{Deg, Euler, Matrix3, Point3, SquareMatrix, Vector3};
 use obj::{LoadConfig, ObjData};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
-    impl_vertex,
+    buffer::{Buffer, BufferAllocateInfo, BufferUsage, Subbuffer},
+    pipeline::graphics::vertex_input::Vertex,
 };
 
 use crate::MemoryAllocator;
@@ -16,18 +16,19 @@ pub const PLATONIC_SOLIDS: [(&str, &[u8]); 1] = [("Buny", include_bytes!("bunny.
 // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
 // particular example, it doesn't actually change the in-memory representation.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-pub struct Vertex {
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod, Vertex)]
+pub struct OVertex {
+    #[format(R32G32B32_SFLOAT)]
     position: [f32; 3],
+    #[format(R32G32B32_SFLOAT)]
     normal: [f32; 3],
 }
-impl_vertex!(Vertex, position, normal);
 
 #[derive(Debug)]
 pub struct Mesh {
     pub name: String,
-    pub vertices: Arc<CpuAccessibleBuffer<[Vertex]>>,
-    pub indices: Arc<CpuAccessibleBuffer<[u32]>>,
+    pub vertices: Subbuffer<[OVertex]>,
+    pub indices: Subbuffer<[u32]>,
     pub pos: Point3<f32>,
     pub rot: Euler<Deg<f32>>,
     pub scale: f32,
@@ -55,7 +56,7 @@ pub fn load_obj(memory_allocator: &MemoryAllocator, input: &mut dyn Read, name: 
                     //println!("{:?}", exist);
                     indices.push(exist);
                 } else {
-                    vertices.push(Vertex {
+                    vertices.push(OVertex {
                         position: object.position[mapping.0 as usize],
                         normal: object.normal[mapping.1 as usize],
                     });
@@ -66,24 +67,22 @@ pub fn load_obj(memory_allocator: &MemoryAllocator, input: &mut dyn Read, name: 
         }
     }
 
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(
+    let vertex_buffer = Buffer::from_iter(
         memory_allocator,
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::empty()
+        BufferAllocateInfo {
+            buffer_usage: BufferUsage::VERTEX_BUFFER,
+            ..Default::default()
         },
-        false,
         vertices,
     )
     .unwrap();
 
-    let index_buffer = CpuAccessibleBuffer::from_iter(
+    let index_buffer = Buffer::from_iter(
         memory_allocator,
-        BufferUsage {
-            index_buffer: true,
-            ..BufferUsage::empty()
+        BufferAllocateInfo {
+            buffer_usage: BufferUsage::INDEX_BUFFER,
+            ..Default::default()
         },
-        false,
         indices,
     )
     .unwrap();

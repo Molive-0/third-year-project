@@ -30,3 +30,14 @@ rodio = "0.16"
 
 egui = "0.20"
 egui_winit_vulkano = "0.22"
+
+ash = "*"
+
+
+# using latest gits
+[patch.crates-io]
+vulkano = { path = "../vulkano/vulkano" }
+vulkano-shaders = { path = "../vulkano/vulkano-shaders" }
+vulkano-win = { path = "../vulkano/vulkano-win" }
+vulkano-util = { path = "../vulkano/vulkano-util" }
+egui_winit_vulkano = { git = "https://github.com/Molive-0/egui_winit_vulkano" }

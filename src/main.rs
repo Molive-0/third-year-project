@@ -24,27 +24,36 @@ use obj::{LoadConfig, ObjData};
 use rodio::{source::Source, Decoder, OutputStream};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
-use vulkano::buffer::CpuBufferPool;
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
+use vulkano::buffer::sys::BufferCreateInfo;
+use vulkano::buffer::{Buffer, BufferAllocateInfo};
+use vulkano::command_buffer::allocator::{
+    CommandBufferAllocator, CommandBufferBuilderAlloc, StandardCommandBufferAllocator,
+};
+use vulkano::command_buffer::synced::SyncCommandBufferBuilder;
+use vulkano::command_buffer::sys::{CommandBufferBeginInfo, UnsafeCommandBufferBuilder};
+use vulkano::command_buffer::CommandBufferInheritanceInfo;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::DeviceOwned;
+use vulkano::device::{DeviceOwned, QueueFlags};
 use vulkano::format::Format;
 use vulkano::image::AttachmentImage;
 use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::rasterization::CullMode;
 use vulkano::pipeline::graphics::rasterization::FrontFace::Clockwise;
+use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::PipelineBindPoint;
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
-use vulkano::VulkanLibrary;
+use vulkano::{NonExhaustive, VulkanLibrary, VulkanObject};
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, VirtualKeyCode};
 
+use ash::vk::CommandBuffer;
 use egui_winit_vulkano::Gui;
 use vulkano::pipeline::StateMode::Fixed;
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::BufferUsage,
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
     },
@@ -53,7 +62,7 @@ use vulkano::{
     },
     image::{view::ImageView, ImageAccess, ImageUsage, SwapchainImage},
     impl_vertex,
-    instance::{Instance, InstanceCreateInfo},
+    instance::{Instance, InstanceCreateInfo, IntanceExtensions},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -98,7 +107,10 @@ fn main() {
     let instance = Instance::new(
         library,
         InstanceCreateInfo {
-            enabled_extensions: required_extensions,
+            enabled_extensions: IntanceExtensions {
+                khr_get_physical_device_properties2,
+                ..required_extensions,
+            },
             // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
             enumerate_portability: true,
             ..Default::default()
@@ -127,6 +139,9 @@ fn main() {
     // `khr_swapchain` extension.
     let device_extensions = DeviceExtensions {
         khr_swapchain: true,
+        ext_mesh_shader: true,
+        khr_spirv_1_4: true,
+        khr_shader_float_controls: true,
         ..DeviceExtensions::empty()
     };
 
@@ -161,7 +176,8 @@ fn main() {
                     // We select a queue family that supports graphics operations. When drawing to
                     // a window surface, as we do in this example, we also need to check that queues
                     // in this queue family are capable of presenting images to the surface.
-                    q.queue_flags.graphics && p.surface_support(i as u32, &surface).unwrap_or(false)
+                    q.queue_flags.intersects(QueueFlags::GRAPHICS)
+                        && p.surface_support(i as u32, &surface).unwrap_or(false)
                 })
                 // The code here searches for the first queue family that is suitable. If none is
                 // found, `None` is returned to `filter_map`, which disqualifies this physical
@@ -273,16 +289,13 @@ fn main() {
                 // use that.
                 image_extent: window.inner_size().into(),
 
-                image_usage: ImageUsage {
-                    color_attachment: true,
-                    ..ImageUsage::empty()
-                },
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
 
                 // The alpha mode indicates how the alpha value of the final image will behave. For
                 // example, you can choose whether the window will be opaque or transparent.
                 composite_alpha: surface_capabilities
                     .supported_composite_alpha
-                    .iter()
+                    .into_iter()
                     .next()
                     .unwrap(),
 
@@ -338,6 +351,8 @@ fn main() {
 
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
+            vulkan_version: "1.2",
+            spirv_version: "1.4"
         }
     }
 
@@ -350,11 +365,29 @@ fn main() {
 
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
+            vulkan_version: "1.2",
+            spirv_version: "1.4"
         }
     }
 
     let mesh_vs = mesh_vs::load(device.clone()).unwrap();
     let mesh_fs = mesh_fs::load(device.clone()).unwrap();
+
+    mod implicit_ms {
+        vulkano_shaders::shader! {
+            ty: "mesh",
+            path: "src/cube.mesh.glsl",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+
+                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
+            },
+            vulkan_version: "1.2",
+            spirv_version: "1.4"
+        }
+    }
+
+    let implicit_ms = implicit_ms::load(device.clone()).unwrap();
 
     /*let uniform_buffer =
     CpuBufferPool::<vs::ty::PushConstantData>::uniform_buffer(memory_allocator);*/
@@ -429,6 +462,7 @@ fn main() {
         &memory_allocator,
         &mesh_vs,
         &mesh_fs,
+        &implicit_ms,
         &images,
         render_pass.clone(),
         &mut viewport,
@@ -476,13 +510,13 @@ fn main() {
 
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
 
-    let uniform_buffer = CpuBufferPool::<mesh_fs::ty::Data>::new(
+    let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
-        BufferUsage {
-            uniform_buffer: true,
-            ..BufferUsage::empty()
+        SubbufferAllocatorCreateInfo {
+            // We want to use the allocated subbuffers as vertex buffers.
+            buffer_usage: BufferUsage::UNIFORM_BUFFER,
+            ..Default::default()
         },
-        MemoryUsage::Upload,
     );
 
     // Create an egui GUI
@@ -638,6 +672,7 @@ fn main() {
                         &memory_allocator,
                         &mesh_vs,
                         &mesh_fs,
+                        &implicit_ms,
                         &new_images,
                         render_pass.clone(),
                         &mut viewport,
@@ -737,7 +772,9 @@ fn main() {
                         light_count: gstate.lights.len() as u32,
                     };
 
-                    uniform_buffer.from_data(uniform_data).unwrap()
+                    let sub = uniform_buffer.allocate_sized().unwrap();
+                    *sub.write().unwrap() = uniform_data;
+                    sub
                 };
 
                 let layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
@@ -843,6 +880,36 @@ fn main() {
                         .unwrap();
                 }
 
+                /*unsafe {
+                    let secondary_builder = AutoCommandBufferBuilder::secondary(
+                        &command_buffer_allocator,
+                        queue_family_index,
+                        CommandBufferUsage::OneTimeSubmit,
+                        CommandBufferInheritanceInfo {
+                            render_pass: Some(
+                                Subpass::from(render_pass.clone(), 0).unwrap().into(),
+                            ),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+
+                    let secondary_buffer = secondary_builder.build().unwrap();
+
+                    (device.fns().ext_mesh_shader.cmd_draw_mesh_tasks_ext)(
+                        secondary_buffer.handle(),
+                        1,
+                        1,
+                        1,
+                    );
+
+                    /*builder
+                    .execute_commands(secondary_buffer)
+                    .expect("Failed to execute chicanery");*/
+                }*/
+
+                builder.draw_mesh([1, 1, 1]).unwrap();
+
                 // We leave the render pass. Note that if we had multiple
                 // subpasses we could have called `next_subpass` to jump to the next subpass.
                 builder
@@ -898,6 +965,7 @@ fn window_size_dependent_setup(
     allocator: &StandardMemoryAllocator,
     mesh_vs: &ShaderModule,
     mesh_fs: &ShaderModule,
+    implicit_ms: &ShaderModule,
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
@@ -932,7 +1000,7 @@ fn window_size_dependent_setup(
         // in. The pipeline will only be usable from this particular subpass.
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
         // We need to indicate the layout of the vertices.
-        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+        .vertex_input_state(OVertex::per_vertex())
         // The content of the vertex buffer describes a list of triangles.
         .input_assembly_state(InputAssemblyState::new())
         // A Vulkan shader can in theory contain multiple entry points, so we have to specify
@@ -947,6 +1015,7 @@ fn window_size_dependent_setup(
         ]))
         // See `vertex_shader`.
         .fragment_shader(mesh_fs.entry_point("main").unwrap(), ())
+        .mesh_shader(implicit_ms.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             front_face: Fixed(Clockwise),

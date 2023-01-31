@@ -671,8 +671,7 @@ dependencies = [
 [[package]]
 name = "egui_winit_vulkano"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c16b9a2bcbfc85f5a4e1d91d1126958451c881c69efcc98e5d6b1b0e5fbb7419"
+source = "git+https://github.com/Molive-0/egui_winit_vulkano#7136d8243a6803709b304bad965b22280351ebbf"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -715,6 +714,7 @@ dependencies = [
 name = "erroccfisumreg"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "bytemuck",
  "cgmath",
  "egui",
@@ -2235,9 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "vulkano"
-version = "0.32.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f80b11c6c46ecb2c42155c8bcbc3ff04b783185181d4bbe19d9635a711ec747f"
+version = "0.32.0"
 dependencies = [
  "ahash",
  "ash",
@@ -2247,9 +2245,9 @@ dependencies = [
  "half",
  "heck",
  "indexmap",
- "lazy_static",
  "libloading",
  "objc",
+ "once_cell",
  "parking_lot",
  "proc-macro2",
  "quote",
@@ -2259,13 +2257,12 @@ dependencies = [
  "smallvec",
  "thread_local",
  "vk-parse",
+ "vulkano_macros",
 ]
 
 [[package]]
 name = "vulkano-shaders"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96bbe0784b21e32661fde8a883bb3f659a473693c9f23bab12c26d7884c15ed0"
 dependencies = [
  "ahash",
  "heck",
@@ -2279,8 +2276,6 @@ dependencies = [
 [[package]]
 name = "vulkano-util"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df7d34bf37d622aa10d63a05396d91566d8298ca04ebc632f536946659a62f58"
 dependencies = [
  "ahash",
  "vulkano",
@@ -2291,14 +2286,22 @@ dependencies = [
 [[package]]
 name = "vulkano-win"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac1056e3238fe9025628b3de0f401d8c60b7a6dc89e059534568f55fef4e29f7"
 dependencies = [
  "core-graphics-types",
  "objc",
  "raw-window-handle 0.5.0",
  "vulkano",
  "winit",
+]
+
+[[package]]
+name = "vulkano_macros"
+version = "0.32.0"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
