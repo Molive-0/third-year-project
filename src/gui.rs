@@ -1,6 +1,6 @@
 use egui::{
     plot::{Line, Plot, PlotPoints},
-    Color32, Frame, Id, ScrollArea, TextEdit, TextStyle,
+    Color32, Frame, Id,
 };
 use egui_winit_vulkano::Gui;
 
@@ -9,14 +9,6 @@ use crate::objects::{Light, Mesh};
 fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
     ui.label(egui::RichText::new(text).size(size));
 }
-
-const CODE: &str = r#"
-# Some markup
-```
-let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue());
-```
-Vulkan(o) is hard, that I know...
-"#;
 
 #[derive(Debug)]
 pub struct GState {
@@ -44,7 +36,6 @@ impl Default for GState {
 }
 
 pub fn gui_up(gui: &mut Gui, state: &mut GState) {
-    let mut code = CODE.to_owned();
     gui.immediate_ui(|gui| {
         let ctx = gui.context();
         egui::SidePanel::left(Id::new("main_left"))

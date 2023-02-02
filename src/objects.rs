@@ -1,7 +1,7 @@
-use std::{collections::HashMap, io::Read, sync::Arc};
+use std::{collections::HashMap, io::Read};
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Deg, Euler, Matrix3, Point3, SquareMatrix, Vector3};
+use cgmath::{Deg, Euler, Point3, Vector3};
 use obj::{LoadConfig, ObjData};
 use vulkano::{
     buffer::{Buffer, BufferAllocateInfo, BufferUsage, Subbuffer},
