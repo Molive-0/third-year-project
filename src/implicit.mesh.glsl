@@ -3,28 +3,14 @@
 #version 450
 #extension GL_EXT_mesh_shader:require
 
-layout(push_constant)uniform PushConstantData{
-    mat4 world;
-}pc;
-
-layout(set=0,binding=0)uniform Lights{
-    vec4[32]pos;
-    vec4[32]col;
-    uint light_count;
-}light_uniforms;
-
-layout(set=0,binding=1)uniform Camera{
-    mat4 view;
-    mat4 proj;
-    vec3 campos;
-}camera_uniforms;
+#include "include.glsl"
 
 layout(local_size_x=1,local_size_y=1,local_size_z=1)in;
 layout(triangles,max_vertices=64,max_primitives=162)out;
 
 layout(location=0)out VertexOutput
 {
-    vec4 color;
+    vec4 position;
 }vertexOutput[];
 
 const vec4[8]positions={
@@ -60,14 +46,14 @@ void main()
     gl_MeshVerticesEXT[5].gl_Position=mvp*(positions[5]+offset);
     gl_MeshVerticesEXT[6].gl_Position=mvp*(positions[6]+offset);
     gl_MeshVerticesEXT[7].gl_Position=mvp*(positions[7]+offset);
-    vertexOutput[0].color=scale*positions[0];
-    vertexOutput[1].color=scale*positions[1];
-    vertexOutput[2].color=scale*positions[2];
-    vertexOutput[3].color=scale*positions[3];
-    vertexOutput[4].color=scale*positions[4];
-    vertexOutput[5].color=scale*positions[5];
-    vertexOutput[6].color=scale*positions[6];
-    vertexOutput[7].color=scale*positions[7];
+    vertexOutput[0].position=scale*positions[0];
+    vertexOutput[1].position=scale*positions[1];
+    vertexOutput[2].position=scale*positions[2];
+    vertexOutput[3].position=scale*positions[3];
+    vertexOutput[4].position=scale*positions[4];
+    vertexOutput[5].position=scale*positions[5];
+    vertexOutput[6].position=scale*positions[6];
+    vertexOutput[7].position=scale*positions[7];
     gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationIndex+0]=uvec3(0,1,2);
     gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationIndex+1]=uvec3(1,2,3);
     gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationIndex+2]=uvec3(4,5,6);
@@ -81,14 +67,3 @@ void main()
     gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationIndex+10]=uvec3(0,1,4);
     gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationIndex+11]=uvec3(1,4,5);
 }
-/*
-0 1 2 3 0
-4 5 6 7 4
-0 1 2
-1 2 3
-4 5 6
-5 6 7
-0 1 4
-1 4 5
-1 2
-*/

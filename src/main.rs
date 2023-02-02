@@ -7,16 +7,18 @@ use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceOwned, Features, QueueFlags};
 use vulkano::format::Format;
-use vulkano::image::AttachmentImage;
+use vulkano::image::view::ImageViewCreateInfo;
+use vulkano::image::{AttachmentImage, SampleCount};
 use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
+use vulkano::pipeline::graphics::multisample::MultisampleState;
 use vulkano::pipeline::graphics::rasterization::CullMode;
 use vulkano::pipeline::graphics::rasterization::FrontFace::Clockwise;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::PipelineBindPoint;
 use vulkano::shader::{ShaderModule, SpecializationConstants};
 use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
-use vulkano::VulkanLibrary;
+use vulkano::{Version, VulkanLibrary};
 use winit::event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode};
 
 use egui_winit_vulkano::Gui;
@@ -133,6 +135,7 @@ fn main() {
             enabled_features: Features {
                 mesh_shader: true,
                 task_shader: true,
+                sample_rate_shading: true,
                 ..Features::empty()
             },
             ..Default::default()
@@ -201,14 +204,15 @@ fn main() {
     mod mesh_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "src/triangle.frag.glsl",
+            path: "src/frag.glsl",
             types_meta: {
                 use bytemuck::{Pod, Zeroable};
 
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6"
+            spirv_version: "1.6",
+            define: [("triangle","1")]
         }
     }
 
@@ -232,14 +236,15 @@ fn main() {
     mod implicit_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "src/implicit.frag.glsl",
+            path: "src/frag.glsl",
             types_meta: {
                 use bytemuck::{Pod, Zeroable};
 
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6"
+            spirv_version: "1.6",
+            define: [("implicit","1")]
         }
     }
 
@@ -251,26 +256,33 @@ fn main() {
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
-            color: {
+            intermediary: {
                 load: Clear,
+                store: DontCare,
+                format: swapchain.image_format(),
+                samples: 4,
+            },
+            color: {
+                load: DontCare,
                 store: Store,
                 format: swapchain.image_format(),
                 samples: 1,
             },
-            depth: {
+            multi_depth: {
                 load: Clear,
                 store: DontCare,
                 format: Format::D16_UNORM,
-                samples: 1,
+                samples: 4,
             }
         },
         passes: [{
-            color: [color],
-            depth_stencil: {depth},
-            input: []
+            color: [intermediary],
+            depth_stencil: {multi_depth},
+            input: [],
+            resolve: [color]
         },{
             color: [color],
-            depth_stencil: {depth},
+            depth_stencil: {},
             input: []
         }]
     )
@@ -512,13 +524,16 @@ fn main() {
                         keys.d = false;
                     }
 
+                    let near = 0.01;
+                    let far = 100.0;
+
                     let aspect_ratio =
                         swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
                     let proj = cgmath::perspective(
                         Rad(std::f32::consts::FRAC_PI_2),
                         aspect_ratio,
-                        0.01,
-                        100.0,
+                        near,
+                        far,
                     );
                     let scale = 0.01;
                     let view = Matrix4::from(camforward)
@@ -533,7 +548,7 @@ fn main() {
                     let uniform_data = mesh_fs::ty::Camera {
                         view: view.into(),
                         proj: proj.into(),
-                        campos: (campos * 100.0).into(),
+                        campos: (campos * (far - near)).into(),
                     };
 
                     let sub = uniform_buffer.allocate_sized().unwrap();
@@ -622,6 +637,7 @@ fn main() {
                         RenderPassBeginInfo {
                             clear_values: vec![
                                 Some([0.12, 0.1, 0.1, 1.0].into()),
+                                None,
                                 Some(1.0.into()),
                             ],
                             ..RenderPassBeginInfo::framebuffer(
@@ -722,24 +738,54 @@ fn window_size_dependent_setup<Mms>(
     specs: Mms,
 ) -> ([Arc<GraphicsPipeline>; 2], Vec<Arc<Framebuffer>>)
 where
-    Mms: SpecializationConstants,
+    Mms: SpecializationConstants + Clone,
 {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(allocator, dimensions, Format::D16_UNORM).unwrap(),
+        AttachmentImage::transient_multisampled(
+            allocator,
+            dimensions,
+            SampleCount::Sample4,
+            Format::D16_UNORM,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let intermediary_image = AttachmentImage::transient_multisampled(
+        allocator,
+        dimensions,
+        SampleCount::Sample4,
+        images[0].format(),
+    )
+    .unwrap();
+
+    let intermediary = ImageView::new(
+        intermediary_image.clone(),
+        ImageViewCreateInfo {
+            usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+            ..ImageViewCreateInfo::from_image(&intermediary_image)
+        },
     )
     .unwrap();
 
     let framebuffers = images
         .iter()
         .map(|image| {
-            let view = ImageView::new_default(image.clone()).unwrap();
+            let view = ImageView::new(
+                image.clone(),
+                ImageViewCreateInfo {
+                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+                    ..ImageViewCreateInfo::from_image(&intermediary_image)
+                },
+            )
+            .unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
+                    attachments: vec![intermediary.clone(), view, depth_buffer.clone()],
                     ..Default::default()
                 },
             )
@@ -759,12 +805,19 @@ where
                 depth_range: 0.0..1.0,
             },
         ]))
-        .fragment_shader(mesh_fs.entry_point("main").unwrap(), ())
+        .fragment_shader(mesh_fs.entry_point("main").unwrap(), specs.clone())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             front_face: Fixed(Clockwise),
             cull_mode: Fixed(CullMode::Back),
             ..RasterizationState::default()
+        })
+        .multisample_state(MultisampleState {
+            rasterization_samples: Subpass::from(render_pass.clone(), 0)
+                .unwrap()
+                .num_samples()
+                .unwrap(),
+            ..Default::default()
         })
         .build(allocator.device().clone())
         .unwrap();
@@ -785,6 +838,14 @@ where
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             ..RasterizationState::default()
+        })
+        .multisample_state(MultisampleState {
+            rasterization_samples: Subpass::from(render_pass.clone(), 0)
+                .unwrap()
+                .num_samples()
+                .unwrap(),
+            sample_shading: Some(0.5),
+            ..Default::default()
         })
         .build(allocator.device().clone())
         .unwrap();
