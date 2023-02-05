@@ -33,6 +33,10 @@ egui_winit_vulkano = "0.22"
 
 ash = "*"
 
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+
+utf-8 = "*"
 
 # using latest gits
 [patch.crates-io]

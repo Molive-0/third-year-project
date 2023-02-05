@@ -1,3 +1,4 @@
+#![feature(variant_count)]
 use cgmath::{Deg, EuclideanSpace, Euler, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
@@ -18,7 +19,7 @@ use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::PipelineBindPoint;
 use vulkano::shader::{ShaderModule, SpecializationConstants};
 use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
-use vulkano::{Version, VulkanLibrary};
+use vulkano::VulkanLibrary;
 use winit::event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode};
 
 use egui_winit_vulkano::Gui;
@@ -58,6 +59,7 @@ mod gui;
 use crate::gui::*;
 mod objects;
 use crate::objects::*;
+mod mcsg_deserialise;
 
 pub type MemoryAllocator = StandardMemoryAllocator;
 
@@ -370,11 +372,23 @@ fn main() {
         d: false,
     };
 
-    gstate.meshes.push(load_obj(
-        &memory_allocator,
-        &mut Cursor::new(PLATONIC_SOLIDS[0].1),
-        PLATONIC_SOLIDS[0].0.to_string(),
-    ));
+    gstate.meshes.push(
+        load_obj(
+            &memory_allocator,
+            &mut Cursor::new(PLATONIC_SOLIDS[0].1),
+            PLATONIC_SOLIDS[0].0.to_string(),
+        )
+        .unwrap(),
+    );
+
+    gstate.csg.push(
+        load_csg(
+            &memory_allocator,
+            &mut Cursor::new(CSG_SOLIDS[0].1),
+            CSG_SOLIDS[0].0.to_string(),
+        )
+        .unwrap(),
+    );
 
     gstate
         .lights

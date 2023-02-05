@@ -4,7 +4,7 @@ use egui::{
 };
 use egui_winit_vulkano::Gui;
 
-use crate::objects::{Light, Mesh};
+use crate::objects::{Light, Mesh, CSG};
 
 fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
     ui.label(egui::RichText::new(text).size(size));
@@ -17,6 +17,7 @@ pub struct GState {
 
     pub meshes: Vec<Mesh>,
     pub lights: Vec<Light>,
+    pub csg: Vec<CSG>,
 
     pub fps: [f64; 128],
 }
@@ -29,6 +30,7 @@ impl Default for GState {
 
             meshes: vec![],
             lights: vec![],
+            csg: vec![],
 
             fps: [0.0; 128],
         }

@@ -1,16 +1,27 @@
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read},
+    mem,
+    num::ParseFloatError,
+};
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Deg, Euler, Point3, Vector3};
-use obj::{LoadConfig, ObjData};
+use cgmath::{Deg, EuclideanSpace, Euler, Matrix3, Point3, SquareMatrix, Vector3};
+use obj::{LoadConfig, ObjData, ObjError};
+use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{Buffer, BufferAllocateInfo, BufferUsage, Subbuffer},
+    half::f16,
     pipeline::graphics::vertex_input::Vertex,
 };
 
-use crate::MemoryAllocator;
+use crate::{
+    mcsg_deserialise::{from_reader, Deserializer},
+    MemoryAllocator,
+};
 
 pub const PLATONIC_SOLIDS: [(&str, &[u8]); 1] = [("Buny", include_bytes!("bunny.obj"))];
+pub const CSG_SOLIDS: [(&str, &[u8]); 1] = [("Primitives", include_bytes!("primitive.mcsg"))];
 
 // We now create a buffer that will store the shape of our triangle.
 // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
@@ -31,11 +42,54 @@ pub struct Mesh {
     pub indices: Subbuffer<[u32]>,
     pub pos: Point3<f32>,
     pub rot: Euler<Deg<f32>>,
-    pub scale: f32,
+    pub scale: Vector3<f32>,
 }
 
-pub fn load_obj(memory_allocator: &MemoryAllocator, input: &mut dyn Read, name: String) -> Mesh {
-    let object = ObjData::load_buf_with_config(input, LoadConfig::default()).unwrap();
+#[derive(Debug)]
+pub struct CSG {
+    pub name: String,
+    pub parts: Subbuffer<[CSGPart]>,
+    pub pos: Point3<f32>,
+    pub rot: Euler<Deg<f32>>,
+    pub scale: Vector3<f32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod, Vertex)]
+pub struct CSGPart {
+    #[format(R16_SFLOAT)]
+    code: u16,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Default)]
+pub enum CSGOpcode {
+    Infinity = 0, // 0 is actually FP16 infinity, perfectly normal representation
+    #[default]
+    None,
+    Const,
+}
+
+impl CSGPart {
+    pub fn opcode(opcode: CSGOpcode) -> CSGPart {
+        CSGPart {
+            code: opcode as u16 | 0b0111110000000000,
+        }
+    }
+
+    pub fn literal(literal: f16) -> CSGPart {
+        CSGPart {
+            code: literal.to_bits(),
+        }
+    }
+}
+
+pub fn load_obj(
+    memory_allocator: &MemoryAllocator,
+    input: &mut dyn Read,
+    name: String,
+) -> Result<Mesh, ObjError> {
+    let object = ObjData::load_buf_with_config(input, LoadConfig::default())?;
 
     let mut vertices = vec![];
 
@@ -87,7 +141,7 @@ pub fn load_obj(memory_allocator: &MemoryAllocator, input: &mut dyn Read, name: 
     )
     .unwrap();
 
-    Mesh {
+    Ok(Mesh {
         vertices: vertex_buffer,
         indices: index_buffer,
         pos: Point3 {
@@ -96,9 +150,237 @@ pub fn load_obj(memory_allocator: &MemoryAllocator, input: &mut dyn Read, name: 
             z: 0.,
         },
         rot: Euler::new(Deg(0.), Deg(0.), Deg(0.)),
-        scale: 1.,
+        scale: Vector3 {
+            x: 1.,
+            y: 1.,
+            z: 1.,
+        },
         name,
-    }
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+struct MCSG {
+    object: Vec<MCSGObject>,
+    csg: Vec<MCSGCSG>,
+}
+type MCSGObject = HashMap<String, String>;
+type MCSGCSG = Vec<MCSGCSGPart>;
+type MCSGCSGPart = HashMap<String, String>;
+
+fn matrix3_from_string(input: &String) -> Result<Matrix3<f32>, String> {
+    let vec = input
+        .split(" ")
+        .map(|s| s.parse::<f32>())
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|_| "not floats")?;
+    let array: [f32; 9] = vec.try_into().map_err(|_| "wrong number of values")?;
+    let matrix: &Matrix3<f32> = (&array).into();
+    Ok(*matrix)
+}
+
+fn vector3_from_string(input: &String) -> Result<Vector3<f32>, String> {
+    let vec = input
+        .split(" ")
+        .map(|s| s.parse::<f32>())
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|_| "not floats")?;
+    let array: [f32; 3] = vec.try_into().map_err(|_| "wrong number of values")?;
+    let vector: &Vector3<f32> = (&array).into();
+    Ok(*vector)
+}
+
+fn point3_from_string(input: &String) -> Result<Point3<f32>, String> {
+    let vec = input
+        .split(" ")
+        .map(|s| s.parse::<f32>())
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|_| "not floats")?;
+    let array: [f32; 3] = vec.try_into().map_err(|_| "wrong number of values")?;
+    let point: &Point3<f32> = (&array).into();
+    Ok(*point)
+}
+struct TRS {
+    translation: Point3<f32>,
+    rotation: Matrix3<f32>,
+    scale: Vector3<f32>,
+}
+
+fn get_trs(o: &HashMap<String, String>) -> Result<TRS, String> {
+    Ok(TRS {
+        translation: o
+            .get("t")
+            .map(point3_from_string)
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(Point3::origin()),
+        rotation: o
+            .get("r")
+            .map(matrix3_from_string)
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(Matrix3::identity()),
+        scale: o
+            .get("s")
+            .map(vector3_from_string)
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(Vector3 {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            }),
+    })
+}
+fn get_color(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
+    Ok(o.get("color")
+        .map(vector3_from_string)
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or(Vector3 {
+            x: 255.,
+            y: 255.,
+            z: 255.,
+        }))
+}
+
+fn get_rgb(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
+    Ok(o.get("rgb")
+        .map(vector3_from_string)
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or(Vector3 {
+            x: 255.,
+            y: 255.,
+            z: 255.,
+        }))
+}
+
+fn get_f32(o: &HashMap<String, String>, tag: &str) -> Result<f32, String> {
+    get_f32_default(o, tag, 0.)
+}
+
+fn get_f32_default(o: &HashMap<String, String>, tag: &str, default: f32) -> Result<f32, String> {
+    Ok(o.get(tag)
+        .map(|c| c.parse::<f32>())
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default())
+}
+
+fn get_percentage(o: &HashMap<String, String>, tag: &str) -> Result<f32, String> {
+    get_f32(o, tag).map(|c| c / 100.0)
+}
+
+fn get_percentage_default(
+    o: &HashMap<String, String>,
+    tag: &str,
+    default: f32,
+) -> Result<f32, String> {
+    get_f32_default(o, tag, default).map(|c| c / 100.0)
+}
+
+#[repr(u8)]
+enum Half {
+    X,
+    Y,
+    Z,
+    XM,
+    YM,
+    ZM,
+}
+
+fn get_half(o: &HashMap<String, String>) -> Result<Half, String> {
+    Ok({
+        let half = o
+            .get("half")
+            .map(|c| c.parse::<u8>())
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(0);
+        if half as usize >= mem::variant_count::<Half>() {
+            return Err("invalid enum".to_owned());
+        }
+        unsafe { mem::transmute(half) }
+    })
+}
+
+pub fn load_csg(
+    memory_allocator: &MemoryAllocator,
+    input: &mut dyn Read,
+    name: String,
+) -> Result<Vec<CSG>, String> {
+    let mcsg: MCSG =
+        from_reader(&mut Cursor::new("{").chain(input).chain(Cursor::new("}"))).unwrap();
+
+    mcsg.object
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let name = name + "_" + o.get("name").unwrap_or(&"unknown".to_owned());
+            let trs = get_trs(&o)?;
+            let color = get_color(&o)?;
+
+            let cid = o
+                .get("cid")
+                .map(|c| c.parse::<usize>())
+                .transpose()
+                .map_err(|e| e.to_string())?
+                .unwrap_or(0);
+            if o.get("type").map(|ty| &ty[..] != "csg").unwrap_or(false) {
+                return Err("Type unknown".to_owned());
+            }
+
+            let parts = mcsg
+                .csg
+                .get(cid)
+                .ok_or("unknown cid")?
+                .iter()
+                .map(|inpart| {
+                    let ty = inpart.get("type").ok_or("no type!")?.as_str();
+                    let mut csgpart = CSGPart::literal(0u8.into());
+                    match ty {
+                        "sphere" => {
+                            let blend = get_f32(&inpart, "blend")?;
+                            let shell = get_percentage(&inpart, "shell%")?;
+                            let power = get_f32_default(&inpart, "power", 2.)?;
+                            let rgb = get_rgb(&inpart)?;
+                            let trs = get_trs(&inpart)?;
+                            let half = get_half(&inpart)?;
+                        }
+                        _ => {} //return Err("unknown type of csg".to_owned()),
+                    }
+                    Ok(csgpart)
+                })
+                .collect::<Result<Vec<CSGPart>, String>>()?;
+
+            let parts_buffer = Buffer::from_iter(
+                memory_allocator,
+                BufferAllocateInfo {
+                    buffer_usage: BufferUsage::VERTEX_BUFFER,
+                    ..Default::default()
+                },
+                parts,
+            )
+            .unwrap();
+
+            Ok(CSG {
+                parts: parts_buffer,
+                pos: Point3 {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                rot: Euler::new(Deg(0.), Deg(0.), Deg(0.)),
+                scale: Vector3 {
+                    x: 1.,
+                    y: 1.,
+                    z: 1.,
+                },
+                name,
+            })
+        })
+        .collect::<Result<Vec<CSG>, String>>()
 }
 
 #[derive(Debug)]
@@ -113,6 +395,19 @@ impl Light {
         Light {
             pos: pos.into(),
             colour: c * intensity,
+        }
+    }
+}
+
+impl Default for Light {
+    fn default() -> Self {
+        Self {
+            pos: Point3::origin(),
+            colour: Vector3 {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            },
         }
     }
 }
