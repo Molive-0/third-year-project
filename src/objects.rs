@@ -88,7 +88,7 @@ pub fn load_obj(
     memory_allocator: &MemoryAllocator,
     input: &mut dyn Read,
     name: String,
-) -> Result<Mesh, ObjError> {
+) -> Result<Vec<Mesh>, ObjError> {
     let object = ObjData::load_buf_with_config(input, LoadConfig::default())?;
 
     let mut vertices = vec![];
@@ -141,7 +141,7 @@ pub fn load_obj(
     )
     .unwrap();
 
-    Ok(Mesh {
+    Ok(vec![Mesh {
         vertices: vertex_buffer,
         indices: index_buffer,
         pos: Point3 {
@@ -156,7 +156,7 @@ pub fn load_obj(
             z: 1.,
         },
         name,
-    })
+    }])
 }
 
 #[derive(Serialize, Deserialize)]
@@ -317,7 +317,7 @@ pub fn load_csg(
         .iter()
         .enumerate()
         .map(|(i, o)| {
-            let name = name + "_" + o.get("name").unwrap_or(&"unknown".to_owned());
+            let name = name.clone() + "_" + o.get("name").unwrap_or(&"unknown".to_owned());
             let trs = get_trs(&o)?;
             let color = get_color(&o)?;
 

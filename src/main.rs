@@ -138,6 +138,8 @@ fn main() {
                 mesh_shader: true,
                 task_shader: true,
                 sample_rate_shading: true,
+                shader_float16: true,
+                shader_int16: true,
                 ..Features::empty()
             },
             ..Default::default()
@@ -372,8 +374,8 @@ fn main() {
         d: false,
     };
 
-    gstate.meshes.push(
-        load_obj(
+    gstate.meshes.append(
+        &mut load_obj(
             &memory_allocator,
             &mut Cursor::new(PLATONIC_SOLIDS[0].1),
             PLATONIC_SOLIDS[0].0.to_string(),
@@ -381,8 +383,8 @@ fn main() {
         .unwrap(),
     );
 
-    gstate.csg.push(
-        load_csg(
+    gstate.csg.append(
+        &mut load_csg(
             &memory_allocator,
             &mut Cursor::new(CSG_SOLIDS[0].1),
             CSG_SOLIDS[0].0.to_string(),
@@ -674,8 +676,12 @@ fn main() {
                     push_constants.world =
                         (Matrix4::from_translation(object.pos - Point3::origin())
                             * Matrix4::from(object.rot)
-                            * object.scale)
-                            .into();
+                            * Matrix4::from_nonuniform_scale(
+                                object.scale.x,
+                                object.scale.y,
+                                object.scale.z,
+                            ))
+                        .into();
                     builder
                         .bind_vertex_buffers(0, object.vertices.clone())
                         .bind_index_buffer(object.indices.clone())

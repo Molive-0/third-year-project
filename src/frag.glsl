@@ -43,10 +43,7 @@ vec3 shading(vec3 normal)
 #define NEARPLANE 0.
 #define FARPLANE length(vec3(10))
 
-float scene(vec3 p)
-{
-    return length(p-vec3(5.))-5.;
-}
+#include "interpreter.glsl"
 
 vec3 getNormal(vec3 p,float dens){
     vec3 n;
