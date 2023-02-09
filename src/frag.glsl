@@ -47,17 +47,17 @@ vec3 shading(vec3 normal)
 
 vec3 getNormal(vec3 p,float dens){
     vec3 n;
-    n.x=scene(vec3(p.x+EPSILON,p.y,p.z));
-    n.y=scene(vec3(p.x,p.y+EPSILON,p.z));
-    n.z=scene(vec3(p.x,p.y,p.z+EPSILON));
-    return normalize(n-scene(p));
+    n.x=scene(vec3(p.x+EPSILON,p.y,p.z),false).x;
+    n.y=scene(vec3(p.x,p.y+EPSILON,p.z),false).x;
+    n.z=scene(vec3(p.x,p.y,p.z+EPSILON),false).x;
+    return normalize(n-(scene(p,false).x));
 }
 
 vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
     vec2 td=vec2(NEARPLANE,1.);
     p=ori;
     for(int i=0;i<MAX_STEPS&&td.y>EPSILON&&td.x<FARPLANE;i++){
-        td.y=scene(p);
+        td.y=scene(p,false).x;
         td.x+=(td.y)*.9;
         p=ori+dir*td.x;
     }
@@ -66,7 +66,7 @@ vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
 
 //Implicit Surface Entrypoint
 void main(){
-    
+    default_mask();
     vec3 raypos=vertexInput.position.xyz;
     vec2 iResolution=vec2(RES_X,RES_Y);
     vec2 iuv=(gl_FragCoord.xy+gl_SamplePosition)/iResolution.xy*2.-1.;
@@ -74,10 +74,16 @@ void main(){
     uv.x*=iResolution.x/iResolution.y;
     vec3 p;
     vec3 raydir=normalize(raypos-camera_uniforms.campos);
+    raypos-=vec3(5);
+    //scene(raypos,false);
+    //f_color=vec4(scene(raypos,false),1.);
+    ///return;
+    
     vec2 td=spheretracing(raypos,raydir,p);
     vec3 n=getNormal(p,td.y);
     if(td.y<EPSILON)
     {
+        f_color=vec4(1.);
         f_color=vec4(shading(n),1.);
         
         vec4 tpoint=camera_uniforms.proj*camera_uniforms.view*vec4(p,1);

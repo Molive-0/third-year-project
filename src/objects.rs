@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read},
     mem,
-    num::ParseFloatError,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -15,10 +14,8 @@ use vulkano::{
     pipeline::graphics::vertex_input::Vertex,
 };
 
-use crate::{
-    mcsg_deserialise::{from_reader, Deserializer},
-    MemoryAllocator,
-};
+use crate::instruction_set::InstructionSet;
+use crate::{mcsg_deserialise::from_reader, MemoryAllocator};
 
 pub const PLATONIC_SOLIDS: [(&str, &[u8]); 1] = [("Buny", include_bytes!("bunny.obj"))];
 pub const CSG_SOLIDS: [(&str, &[u8]); 1] = [("Primitives", include_bytes!("primitive.mcsg"))];
@@ -58,20 +55,11 @@ pub struct CSG {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod, Vertex)]
 pub struct CSGPart {
     #[format(R16_SFLOAT)]
-    code: u16,
-}
-
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Default)]
-pub enum CSGOpcode {
-    Infinity = 0, // 0 is actually FP16 infinity, perfectly normal representation
-    #[default]
-    None,
-    Const,
+    pub code: u16,
 }
 
 impl CSGPart {
-    pub fn opcode(opcode: CSGOpcode) -> CSGPart {
+    pub fn opcode(opcode: InstructionSet) -> CSGPart {
         CSGPart {
             code: opcode as u16 | 0b0111110000000000,
         }

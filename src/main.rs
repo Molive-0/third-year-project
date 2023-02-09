@@ -8,6 +8,7 @@ use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceOwned, Features, QueueFlags};
 use vulkano::format::Format;
+use vulkano::half::f16;
 use vulkano::image::view::ImageViewCreateInfo;
 use vulkano::image::{AttachmentImage, SampleCount};
 use vulkano::memory::allocator::StandardMemoryAllocator;
@@ -60,6 +61,12 @@ use crate::gui::*;
 mod objects;
 use crate::objects::*;
 mod mcsg_deserialise;
+
+mod instruction_set {
+    include!(concat!(env!("OUT_DIR"), "/instructionset.rs"));
+}
+
+use crate::instruction_set::InstructionSet;
 
 pub type MemoryAllocator = StandardMemoryAllocator;
 
@@ -140,6 +147,7 @@ fn main() {
                 sample_rate_shading: true,
                 shader_float16: true,
                 shader_int16: true,
+                shader_int8: true,
                 ..Features::empty()
             },
             ..Default::default()
@@ -601,6 +609,66 @@ fn main() {
                     sub
                 };
 
+                let csg_object = {
+                    let mut data = [[0u32; 4]; 13];
+
+                    let parts = vec![
+                        CSGPart::literal(0i8.into()),
+                        CSGPart::literal(2i8.into()),
+                        CSGPart::literal(0i8.into()),
+                        CSGPart::opcode(InstructionSet::OPDupVec3),
+                        CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
+                        CSGPart::opcode(InstructionSet::OPSubVec3Vec3),
+                        CSGPart::literal(3i8.into()),
+                        CSGPart::opcode(InstructionSet::OPSDFSphere),
+                        CSGPart::literal(0i8.into()),
+                        CSGPart::literal(2i8.into()),
+                        CSGPart::literal(0i8.into()),
+                        CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
+                        CSGPart::opcode(InstructionSet::OPAddVec3Vec3),
+                        CSGPart::literal(3i8.into()),
+                        CSGPart::opcode(InstructionSet::OPSDFSphere),
+                        CSGPart::literal(f16::from_f32(0.5)),
+                        CSGPart::opcode(InstructionSet::OPSmoothMinFloat),
+                        CSGPart::opcode(InstructionSet::OPStop),
+                    ];
+
+                    let mut lower = true;
+                    let mut minor = 0;
+                    let mut major = 0;
+
+                    for part in parts {
+                        data[major][minor] |= (part.code as u32) << (if lower { 0 } else { 16 });
+
+                        lower = !lower;
+                        if lower {
+                            minor += 1;
+                            if minor == 4 {
+                                minor = 0;
+                                major += 1;
+                                if major == 13 {
+                                    panic!("CSGParts Too full!");
+                                }
+                            }
+                        }
+                    }
+
+                    //01111101010101000000000000000000
+
+                    /*data[0][0] = ((CSGPart::literal(5u8.into()).code as u32) << 0)
+                        | ((CSGPart::opcode(InstructionSet::OPSDFSphere).code as u32) << 16);
+                    data[0][1] = ((CSGPart::opcode(InstructionSet::OPStop).code as u32) << 16)
+                        | (CSGPart::opcode(InstructionSet::OPStop).code as u32);*/
+
+                    println!("data: {:?}, {:?}", data[0][0], data[0][1]);
+
+                    let uniform_data = implicit_fs::ty::SceneDescription { d: data };
+
+                    let sub = uniform_buffer.allocate_sized().unwrap();
+                    *sub.write().unwrap() = uniform_data;
+                    sub
+                };
+
                 let mesh_layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
                 let mesh_set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
@@ -619,6 +687,7 @@ fn main() {
                     [
                         WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer.clone()),
                         WriteDescriptorSet::buffer(1, cam_set.clone()),
+                        WriteDescriptorSet::buffer(2, csg_object.clone()),
                     ],
                 )
                 .unwrap();
