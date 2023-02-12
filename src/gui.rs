@@ -63,6 +63,16 @@ pub fn gui_up(gui: &mut Gui, state: &mut GState) {
                             ui.add(egui::Slider::new(&mut mesh.rot.y.0, 0.0..=360.0).text("Rotation.y"));
                             ui.add(egui::Slider::new(&mut mesh.rot.z.0, 0.0..=360.0).text("Rotation.z"));
                         }
+                        ui.heading("Implicit Surfaces");
+                        for csg in &mut state.csg {
+                            ui.label(csg.name.clone());
+                            ui.add(egui::Slider::new(&mut csg.pos.x, -100.0..=100.0).text("Position.x"));
+                            ui.add(egui::Slider::new(&mut csg.pos.y, -100.0..=100.0).text("Position.y"));
+                            ui.add(egui::Slider::new(&mut csg.pos.z, -100.0..=100.0).text("Position.z"));
+                            ui.add(egui::Slider::new(&mut csg.rot.x.0, 0.0..=360.0).text("Rotation.x"));
+                            ui.add(egui::Slider::new(&mut csg.rot.y.0, 0.0..=360.0).text("Rotation.y"));
+                            ui.add(egui::Slider::new(&mut csg.rot.z.0, 0.0..=360.0).text("Rotation.z"));
+                        }
                         ui.heading("Lights");
                         for light in &mut state.lights {
                             ui.label("Light");

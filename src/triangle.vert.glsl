@@ -9,5 +9,5 @@ layout(location=0)out vec3 v_normal;
 void main(){
     mat4 worldview=camera_uniforms.view*pc.world;
     v_normal=normal;//normalize(transpose(inverse(mat3(worldview))) * normal);
-    gl_Position=camera_uniforms.proj*worldview*vec4(position*1000.,1.);
+    gl_Position=camera_uniforms.proj*worldview*vec4(position,1.);
 }

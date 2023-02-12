@@ -89,7 +89,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
-        .with_title("horizontally spinning bunny")
+        .with_title("Implicit Surfaces")
         .build_vk_surface(&event_loop, instance.clone())
         .unwrap();
 
@@ -124,7 +124,7 @@ fn main() {
                 _ => 5,
             }
         })
-        .expect("No suitable physical device found");
+        .expect("No suitable physical device found. Do you have a Mesh Shader capable GPU and are your drivers up to date?");
 
     // Some little debug infos.
     println!(
@@ -402,10 +402,10 @@ fn main() {
 
     gstate
         .lights
-        .push(Light::new([4., 6., 8.], [1., 1., 8.], 0.01));
+        .push(Light::new([4., 6., 8.], [1., 1., 8.], 0.05));
     gstate
         .lights
-        .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.01));
+        .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.05));
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::WindowEvent { event: we, .. } = &event {
@@ -517,28 +517,28 @@ fn main() {
                             campos -= Matrix3::from_angle_y(camforward.y)
                                 * Matrix3::from_angle_x(camforward.x)
                                 * Vector3::unit_z()
-                                * 0.02
+                                * 0.01
                                 * gstate.move_speed;
                         }
                         if keys.s {
                             campos += Matrix3::from_angle_y(camforward.y)
                                 * Matrix3::from_angle_x(camforward.x)
                                 * Vector3::unit_z()
-                                * 0.02
+                                * 0.01
                                 * gstate.move_speed;
                         }
                         if keys.a {
                             campos += Matrix3::from_angle_y(camforward.y)
                                 * Matrix3::from_angle_x(camforward.x)
                                 * Vector3::unit_x()
-                                * 0.02
+                                * 0.01
                                 * gstate.move_speed;
                         }
                         if keys.d {
                             campos -= Matrix3::from_angle_y(camforward.y)
                                 * Matrix3::from_angle_x(camforward.x)
                                 * Vector3::unit_x()
-                                * 0.02
+                                * 0.01
                                 * gstate.move_speed;
                         }
                     } else {
@@ -559,11 +559,9 @@ fn main() {
                         near,
                         far,
                     );
-                    let scale = 0.01;
                     let view = Matrix4::from(camforward)
                         * Matrix4::from_angle_z(Deg(180f32))
-                        * Matrix4::from_translation(Point3::origin() - campos)
-                        * Matrix4::from_scale(scale);
+                        * Matrix4::from_translation(Point3::origin() - campos);
 
                     let pc = mesh_vs::ty::PushConstantData {
                         world: Matrix4::identity().into(),
@@ -572,7 +570,7 @@ fn main() {
                     let uniform_data = mesh_fs::ty::Camera {
                         view: view.into(),
                         proj: proj.into(),
-                        campos: (campos * (far - near)).into(),
+                        campos: (campos).into(),
                     };
 
                     let sub = uniform_buffer.allocate_sized().unwrap();
@@ -614,21 +612,21 @@ fn main() {
 
                     let parts = vec![
                         CSGPart::literal(0i8.into()),
-                        CSGPart::literal(2i8.into()),
+                        CSGPart::literal(f16::from_f32(0.2)),
                         CSGPart::literal(0i8.into()),
                         CSGPart::opcode(InstructionSet::OPDupVec3),
                         CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
                         CSGPart::opcode(InstructionSet::OPSubVec3Vec3),
-                        CSGPart::literal(3i8.into()),
+                        CSGPart::literal(f16::from_f32(0.3)),
                         CSGPart::opcode(InstructionSet::OPSDFSphere),
                         CSGPart::literal(0i8.into()),
-                        CSGPart::literal(2i8.into()),
+                        CSGPart::literal(f16::from_f32(0.2)),
                         CSGPart::literal(0i8.into()),
                         CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
                         CSGPart::opcode(InstructionSet::OPAddVec3Vec3),
-                        CSGPart::literal(3i8.into()),
+                        CSGPart::literal(f16::from_f32(0.3)),
                         CSGPart::opcode(InstructionSet::OPSDFSphere),
-                        CSGPart::literal(f16::from_f32(0.5)),
+                        CSGPart::literal(f16::from_f32(0.05)),
                         CSGPart::opcode(InstructionSet::OPSmoothMinFloat),
                         CSGPart::opcode(InstructionSet::OPStop),
                     ];
@@ -653,14 +651,7 @@ fn main() {
                         }
                     }
 
-                    //01111101010101000000000000000000
-
-                    /*data[0][0] = ((CSGPart::literal(5u8.into()).code as u32) << 0)
-                        | ((CSGPart::opcode(InstructionSet::OPSDFSphere).code as u32) << 16);
-                    data[0][1] = ((CSGPart::opcode(InstructionSet::OPStop).code as u32) << 16)
-                        | (CSGPart::opcode(InstructionSet::OPStop).code as u32);*/
-
-                    println!("data: {:?}, {:?}", data[0][0], data[0][1]);
+                    //println!("data: {:?}, {:?}", data[0][0], data[0][1]);
 
                     let uniform_data = implicit_fs::ty::SceneDescription { d: data };
 
@@ -715,7 +706,7 @@ fn main() {
                 )
                 .unwrap();
 
-                let cb = gui.draw_on_subpass_image(dimensions.into());
+                let guicb = gui.draw_on_subpass_image(dimensions.into());
 
                 builder
                     .begin_render_pass(
@@ -743,7 +734,7 @@ fn main() {
 
                 for object in &gstate.meshes {
                     push_constants.world =
-                        (Matrix4::from_translation(object.pos - Point3::origin())
+                        (Matrix4::from_translation(object.pos * 0.01 - Point3::origin())
                             * Matrix4::from(object.rot)
                             * Matrix4::from_nonuniform_scale(
                                 object.scale.x,
@@ -759,8 +750,6 @@ fn main() {
                         .unwrap();
                 }
 
-                push_constants.world = Matrix4::identity().into();
-
                 builder
                     .bind_pipeline_graphics(implicit_pipeline.clone())
                     .bind_descriptor_sets(
@@ -768,15 +757,28 @@ fn main() {
                         implicit_pipeline.layout().clone(),
                         0,
                         implicit_set,
-                    )
-                    .push_constants(implicit_pipeline.layout().clone(), 0, push_constants);
+                    );
 
-                builder.draw_mesh([1, 1, 1]).unwrap();
+                for csg in &gstate.csg {
+                    push_constants.world =
+                        (Matrix4::from_translation(csg.pos * 0.01 - Point3::origin())
+                            * Matrix4::from(csg.rot)
+                            * Matrix4::from_nonuniform_scale(
+                                csg.scale.x,
+                                csg.scale.y,
+                                csg.scale.z,
+                            ))
+                        .into();
+                    builder
+                        .push_constants(implicit_pipeline.layout().clone(), 0, push_constants)
+                        .draw_mesh([1, 1, 1])
+                        .unwrap();
+                }
 
                 builder
                     .next_subpass(SubpassContents::SecondaryCommandBuffers)
                     .unwrap()
-                    .execute_commands(cb)
+                    .execute_commands(guicb)
                     .unwrap()
                     .end_render_pass()
                     .unwrap();
@@ -926,6 +928,8 @@ where
         .mesh_shader(implicit_ms.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
+            //front_face: Fixed(Clockwise),
+            //cull_mode: Fixed(CullMode::Back),
             ..RasterizationState::default()
         })
         .multisample_state(MultisampleState {

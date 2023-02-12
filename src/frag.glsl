@@ -28,10 +28,12 @@ const uint MAX_STEPS=50;
 vec3 shading(vec3 normal)
 {
     vec3 accum=vec3(0.,0.,0.);
+    mat3 rotation=mat3(pc.world[0].xyz,pc.world[1].xyz,pc.world[2].xyz);
+    vec3 position=pc.world[3].xyz;
     
     for(int i=0;i<light_uniforms.light_count;i++)
     {
-        accum+=light_uniforms.col[i].xyz*((dot(normalize(normal),light_uniforms.pos[i].xyz)*.5)+.5);
+        accum+=light_uniforms.col[i].xyz*((dot(normalize(rotation*normal),normalize(light_uniforms.pos[i].xyz-position))*.5)+.5);
     }
     
     return accum;
@@ -69,15 +71,19 @@ void main(){
     default_mask();
     vec3 raypos=vertexInput.position.xyz;
     vec2 iResolution=vec2(RES_X,RES_Y);
-    vec2 iuv=(gl_FragCoord.xy+gl_SamplePosition)/iResolution.xy*2.-1.;
+    //#ifdef ssaa
+    //vec2 iuv=(gl_FragCoord.xy+gl_SamplePosition)/iResolution.xy*2.-1.;
+    //#else
+    vec2 iuv=(gl_FragCoord.xy)/iResolution.xy*2.-1.;
+    //#endif
     vec2 uv=iuv;
     uv.x*=iResolution.x/iResolution.y;
     vec3 p;
-    vec3 raydir=normalize(raypos-camera_uniforms.campos);
-    raypos-=vec3(5);
-    //scene(raypos,false);
-    //f_color=vec4(scene(raypos,false),1.);
-    ///return;
+    vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
+    //raypos-=vec3(5);
+    
+    //f_color=vec4(raydir,1.);
+    //return;
     
     vec2 td=spheretracing(raypos,raydir,p);
     vec3 n=getNormal(p,td.y);
@@ -86,9 +92,8 @@ void main(){
         f_color=vec4(1.);
         f_color=vec4(shading(n),1.);
         
-        vec4 tpoint=camera_uniforms.proj*camera_uniforms.view*vec4(p,1);
+        vec4 tpoint=camera_uniforms.proj*camera_uniforms.view*pc.world*vec4(p,1);
         gl_FragDepth=(tpoint.z/tpoint.w);
-        //gl_FragDepth=gl_DepthRange.diff*(((tpoint.z/tpoint.w)+1.)*.5)+gl_DepthRange.near;
     }
     else
     {
