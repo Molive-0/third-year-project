@@ -49,17 +49,17 @@ vec3 shading(vec3 normal)
 
 vec3 getNormal(vec3 p,float dens){
     vec3 n;
-    n.x=scene(vec3(p.x+EPSILON,p.y,p.z),false).x;
-    n.y=scene(vec3(p.x,p.y+EPSILON,p.z),false).x;
-    n.z=scene(vec3(p.x,p.y,p.z+EPSILON),false).x;
-    return normalize(n-(scene(p,false).x));
+    n.x=scene(vec3(p.x+EPSILON,p.y,p.z),false);
+    n.y=scene(vec3(p.x,p.y+EPSILON,p.z),false);
+    n.z=scene(vec3(p.x,p.y,p.z+EPSILON),false);
+    return normalize(n-(scene(p,false)));
 }
 
 vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
     vec2 td=vec2(NEARPLANE,1.);
     p=ori;
     for(int i=0;i<MAX_STEPS&&td.y>EPSILON&&td.x<FARPLANE;i++){
-        td.y=scene(p,false).x;
+        td.y=scene(p,false);
         td.x+=(td.y)*.9;
         p=ori+dir*td.x;
     }

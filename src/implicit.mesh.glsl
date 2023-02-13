@@ -4,6 +4,7 @@
 #extension GL_EXT_mesh_shader:require
 
 #include "include.glsl"
+#include "interpreter.glsl"
 
 layout(local_size_x=1,local_size_y=1,local_size_z=1)in;
 layout(triangles,max_vertices=64,max_primitives=162)out;
@@ -13,17 +14,6 @@ layout(location=0)out VertexOutput
     vec4 position;
 }vertexOutput[];
 
-const vec4[8]positions={
-    vec4(-.5,-.5,-.5,1.),
-    vec4(-.5,-.5,.5,1.),
-    vec4(-.5,.5,-.5,1.),
-    vec4(-.5,.5,.5,1.),
-    vec4(.5,-.5,-.5,1.),
-    vec4(.5,-.5,.5,1.),
-    vec4(.5,.5,-.5,1.),
-    vec4(.5,.5,.5,1.),
-};
-
 void main()
 {
     uint iid=gl_LocalInvocationID.x;
@@ -31,6 +21,29 @@ void main()
     vec4 offset=vec4(0.,0.,gl_GlobalInvocationID.x,0.);
     
     vec3 signingvec=sign((inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
+    
+    clear_stacks();
+    default_mask();
+    
+    float[6]bounds={
+        1048576-scene(vec3(1048576,0,0),false),
+        1048576-scene(vec3(0,1048576,0),false),
+        1048576-scene(vec3(0,0,1048576),false),
+        -1048576+scene(vec3(-1048576,0,0),false),
+        -1048576+scene(vec3(0,-1048576,0),false),
+        -1048576+scene(vec3(0,0,-1048576),false),
+    };
+    
+    vec4[8]positions={
+        vec4(bounds[3],bounds[4],bounds[5],1.),
+        vec4(bounds[3],bounds[4],bounds[2],1.),
+        vec4(bounds[3],bounds[1],bounds[5],1.),
+        vec4(bounds[3],bounds[1],bounds[2],1.),
+        vec4(bounds[0],bounds[4],bounds[5],1.),
+        vec4(bounds[0],bounds[4],bounds[2],1.),
+        vec4(bounds[0],bounds[1],bounds[5],1.),
+        vec4(bounds[0],bounds[1],bounds[2],1.),
+    };
     
     SetMeshOutputsEXT(8,6);
     mat4 mvp=camera_uniforms.proj*camera_uniforms.view*pc.world;

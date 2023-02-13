@@ -134,7 +134,7 @@ void default_mask()
     mask=uint8_t[13](uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255),uint8_t(255));
 }
 
-vec3 scene(vec3 p,bool material)
+float scene(vec3 p,bool material)
 {
     uint major_position=0;
     uint minor_position=0;
@@ -1409,10 +1409,10 @@ vec3 scene(vec3 p,bool material)
                     case OPNop:
                     break;
                     case OPStop:
-                    return vec3(pull_float());
+                    return pull_float();
                     case OPInvalid:
                     default:
-                    return vec3(float(minor_float_cache[minor_position]));
+                    return float(minor_float_cache[minor_position]);
                 }
             }else{
                 //return vec3(float(minor_float_cache[minor_position]));
@@ -1426,7 +1426,7 @@ vec3 scene(vec3 p,bool material)
             major_position++;
             if(major_position==13)
             {
-                return vec3(pull_float());
+                return pull_float();
             }
         }
     }
