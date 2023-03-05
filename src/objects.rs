@@ -59,9 +59,9 @@ pub struct CSGPart {
 }
 
 impl CSGPart {
-    pub fn opcode(opcode: InstructionSet) -> CSGPart {
+    pub fn opcode(opcode: InstructionSet, flags: u16) -> CSGPart {
         CSGPart {
-            code: opcode as u16 | 0b0111110000000000,
+            code: (opcode as u16 & 1023) | flags << 10,
         }
     }
 

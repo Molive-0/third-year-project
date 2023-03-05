@@ -1,6 +1,9 @@
 //#extension GL_EXT_shader_16bit_storage:require
 #extension GL_EXT_shader_explicit_arithmetic_types:require
 
+#ifndef interpreter
+#define interpreter 1
+
 #include "instructionset.glsl"
 
 layout(set=0,binding=2)uniform SceneDescription{
@@ -1392,6 +1395,16 @@ float scene(vec3 p,bool material)
                     push_mat4(mat4temp*mat4temp*mat4temp);
                     break;
                     
+                    case OPMulMat2Vec2:
+                    push_vec2(pull_mat2()*pull_vec2());
+                    break;
+                    case OPMulMat3Vec3:
+                    push_vec3(pull_mat3()*pull_vec3());
+                    break;
+                    case OPMulMat4Vec4:
+                    push_vec4(pull_mat4()*pull_vec4());
+                    break;
+                    
                     case OPSDFSphere:
                     {
                         float r=pull_float();
@@ -1431,3 +1444,5 @@ float scene(vec3 p,bool material)
         }
     }
 }
+
+#endif//ifndef interpreter

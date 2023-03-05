@@ -1,5 +1,8 @@
 #![feature(variant_count)]
-use cgmath::{Deg, EuclideanSpace, Euler, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector3};
+use cgmath::{
+    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector2,
+    Vector3, Vector4,
+};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
@@ -209,7 +212,7 @@ fn main() {
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6"
+            spirv_version: "1.5"
         }
     }
 
@@ -223,7 +226,7 @@ fn main() {
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6",
+            spirv_version: "1.5",
             define: [("triangle","1")]
         }
     }
@@ -241,7 +244,7 @@ fn main() {
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6"
+            spirv_version: "1.5"
         }
     }
 
@@ -255,7 +258,7 @@ fn main() {
                 #[derive(Clone, Copy, Zeroable, Pod, Debug)]
             },
             vulkan_version: "1.2",
-            spirv_version: "1.6",
+            spirv_version: "1.5",
             define: [("implicit","1")]
         }
     }
@@ -317,7 +320,7 @@ fn main() {
             &images,
             render_pass.clone(),
             &mut viewport,
-            implicit_fs::SpecializationConstants { RES_X, RES_Y },
+            implicit_fs::SpecializationConstants {},
         );
 
     let command_buffer_allocator =
@@ -326,17 +329,6 @@ fn main() {
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-    /*
-    // Get a output stream handle to the default physical sound device
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    // Load a sound from a file, using a path relative to Cargo.toml
-    let freebird = Cursor::new(include_bytes!("freebird.mp3"));
-    // Decode that sound file into a source
-    let source = Decoder::new(freebird).unwrap().repeat_infinite();
-    // Play the sound directly on the device
-    stream_handle.play_raw(source.convert_samples()).unwrap();
-    */
-
     let mut render_start = Instant::now();
 
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
@@ -344,7 +336,7 @@ fn main() {
     let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
         SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
+            buffer_usage: BufferUsage::UNIFORM_BUFFER | BufferUsage::STORAGE_BUFFER,
             ..Default::default()
         },
     );
@@ -506,7 +498,7 @@ fn main() {
                             &new_images,
                             render_pass.clone(),
                             &mut viewport,
-                            implicit_fs::SpecializationConstants { RES_X, RES_Y },
+                            implicit_fs::SpecializationConstants {},
                         );
                     recreate_swapchain = false;
                 }
@@ -567,7 +559,7 @@ fn main() {
                         world: Matrix4::identity().into(),
                     };
 
-                    let uniform_data = mesh_fs::ty::Camera {
+                    let uniform_data = implicit_fs::ty::Camera {
                         view: view.into(),
                         proj: proj.into(),
                         campos: (campos).into(),
@@ -607,58 +599,114 @@ fn main() {
                     sub
                 };
 
-                let csg_object = {
-                    let mut data = [[0u32; 4]; 13];
+                let mut data = [[0u32; 4]; 29];
 
-                    let parts = vec![
-                        CSGPart::literal(0i8.into()),
-                        CSGPart::literal(f16::from_f32(0.2)),
-                        CSGPart::literal(0i8.into()),
-                        CSGPart::opcode(InstructionSet::OPDupVec3),
-                        CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
-                        CSGPart::opcode(InstructionSet::OPSubVec3Vec3),
-                        CSGPart::literal(f16::from_f32(0.3)),
-                        CSGPart::opcode(InstructionSet::OPSDFSphere),
-                        CSGPart::literal(0i8.into()),
-                        CSGPart::literal(f16::from_f32(0.2)),
-                        CSGPart::literal(0i8.into()),
-                        CSGPart::opcode(InstructionSet::OPPromoteFloatFloatFloatVec3),
-                        CSGPart::opcode(InstructionSet::OPAddVec3Vec3),
-                        CSGPart::literal(f16::from_f32(0.3)),
-                        CSGPart::opcode(InstructionSet::OPSDFSphere),
-                        CSGPart::literal(f16::from_f32(0.05)),
-                        CSGPart::opcode(InstructionSet::OPSmoothMinFloat),
-                        CSGPart::opcode(InstructionSet::OPStop),
-                    ];
+                let parts = vec![
+                    CSGPart::opcode(InstructionSet::OPDupVec3, 0b000000),
+                    CSGPart::opcode(InstructionSet::OPSubVec3Vec3, 0b010000),
+                    CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
+                    CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
+                    CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
+                    CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
+                    CSGPart::opcode(InstructionSet::OPStop, 0b000000),
+                ];
 
-                    let mut lower = true;
-                    let mut minor = 0;
-                    let mut major = 0;
+                let floats: Vec<f32> = vec![0.2, 0.2, 0.05];
 
-                    for part in parts {
-                        data[major][minor] |= (part.code as u32) << (if lower { 0 } else { 16 });
+                let vec2s: Vec<[f32; 2]> = vec![[0.; 2]];
 
-                        lower = !lower;
-                        if lower {
-                            minor += 1;
-                            if minor == 4 {
-                                minor = 0;
-                                major += 1;
-                                if major == 13 {
-                                    panic!("CSGParts Too full!");
-                                }
+                let vec3s: Vec<[f32; 3]> = vec![[0., 0.2, 0.], [0., 0.2, 0.]];
+
+                let vec4s: Vec<[f32; 4]> = vec![[0.; 4]];
+
+                let mat2s: Vec<[f32; 4]> = vec![[0.; 4]];
+
+                let mat3s: Vec<[f32; 9]> = vec![[0.; 9]];
+
+                let mat4s: Vec<[f32; 16]> = vec![[0.; 16]];
+
+                let mats: Vec<[f32; 16]> = vec![[0.; 16]];
+
+                let mut lower = true;
+                let mut minor = 0;
+                let mut major = 0;
+
+                for part in parts {
+                    data[major][minor] |= (part.code as u32) << (if lower { 0 } else { 16 });
+
+                    lower = !lower;
+                    if lower {
+                        minor += 1;
+                        if minor == 4 {
+                            minor = 0;
+                            major += 1;
+                            if major == 29 {
+                                panic!("CSGParts Too full!");
                             }
                         }
                     }
+                }
 
-                    //println!("data: {:?}, {:?}", data[0][0], data[0][1]);
-
-                    let uniform_data = implicit_fs::ty::SceneDescription { d: data };
-
-                    let sub = uniform_buffer.allocate_sized().unwrap();
-                    *sub.write().unwrap() = uniform_data;
-                    sub
+                //println!("data: {:?}, {:?}", data[0][0], data[0][1]);
+                let desc = implicit_fs::ty::Description {
+                    scene: 0,
+                    floats: 0,
+                    vec2s: 0,
+                    vec3s: 0,
+                    vec4s: 0,
+                    mat2s: 0,
+                    mat3s: 0,
+                    mat4s: 0,
                 };
+
+                let descvec = vec![desc];
+
+                fn new_desc(
+                    input: &[implicit_fs::ty::Description],
+                ) -> &implicit_fs::ty::SceneDescription {
+                    unsafe { ::std::mem::transmute(input) }
+                }
+
+                let csg_object = uniform_buffer
+                    .allocate_slice((descvec.len() as u64).max(1))
+                    .unwrap();
+                csg_object.write().unwrap().copy_from_slice(&descvec[..]);
+                let csg_opcodes = uniform_buffer
+                    .allocate_slice((data.len() as u64).max(1))
+                    .unwrap();
+                csg_opcodes.write().unwrap().copy_from_slice(&data[..]);
+                let csg_floats = uniform_buffer
+                    .allocate_slice((floats.len() as u64).max(1))
+                    .unwrap();
+                csg_floats.write().unwrap().copy_from_slice(&floats[..]);
+                let csg_vec2s = uniform_buffer
+                    .allocate_slice((vec2s.len() as u64).max(1))
+                    .unwrap();
+                csg_vec2s.write().unwrap().copy_from_slice(&vec2s[..]);
+                let csg_vec3s = uniform_buffer
+                    .allocate_slice((vec3s.len() as u64).max(1))
+                    .unwrap();
+                csg_vec3s.write().unwrap().copy_from_slice(&vec3s[..]);
+                let csg_vec4s = uniform_buffer
+                    .allocate_slice((vec4s.len() as u64).max(1))
+                    .unwrap();
+                csg_vec4s.write().unwrap().copy_from_slice(&vec4s[..]);
+                let csg_mat2s = uniform_buffer
+                    .allocate_slice((mat2s.len() as u64).max(1))
+                    .unwrap();
+                csg_mat2s.write().unwrap().copy_from_slice(&mat2s[..]);
+                let csg_mat3s = uniform_buffer
+                    .allocate_slice((mat3s.len() as u64).max(1))
+                    .unwrap();
+                csg_mat3s.write().unwrap().copy_from_slice(&mat3s[..]);
+                let csg_mat4s = uniform_buffer
+                    .allocate_slice((mat4s.len() as u64).max(1))
+                    .unwrap();
+                csg_mat4s.write().unwrap().copy_from_slice(&mat4s[..]);
+                let csg_mats = uniform_buffer
+                    .allocate_slice((mats.len() as u64).max(1))
+                    .unwrap();
+                csg_mats.write().unwrap().copy_from_slice(&mats[..]);
 
                 let mesh_layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
                 let mesh_set = PersistentDescriptorSet::new(
@@ -679,6 +727,15 @@ fn main() {
                         WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer.clone()),
                         WriteDescriptorSet::buffer(1, cam_set.clone()),
                         WriteDescriptorSet::buffer(2, csg_object.clone()),
+                        WriteDescriptorSet::buffer(3, csg_opcodes.clone()),
+                        WriteDescriptorSet::buffer(4, csg_floats.clone()),
+                        WriteDescriptorSet::buffer(5, csg_vec2s.clone()),
+                        WriteDescriptorSet::buffer(6, csg_vec3s.clone()),
+                        WriteDescriptorSet::buffer(7, csg_vec4s.clone()),
+                        WriteDescriptorSet::buffer(8, csg_mat2s.clone()),
+                        WriteDescriptorSet::buffer(9, csg_mat3s.clone()),
+                        WriteDescriptorSet::buffer(10, csg_mat4s.clone()),
+                        //WriteDescriptorSet::buffer(11, csg_mats.clone()),
                     ],
                 )
                 .unwrap();

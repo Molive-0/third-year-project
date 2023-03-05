@@ -1,10 +1,7 @@
 //  global fragment shader
 
-#version 450
+#version 460
 #include "include.glsl"
-
-layout(constant_id=0)const uint RES_X=1920;
-layout(constant_id=1)const uint RES_Y=1080;
 
 #ifdef implicit
 
@@ -20,9 +17,6 @@ layout(location=0)in vec3 tri_normal;
 #endif
 
 layout(location=0)out vec4 f_color;
-
-const float EPSILON=.0001;
-const uint MAX_STEPS=50;
 
 /// SHARED CODE ///
 vec3 shading(vec3 normal)
@@ -42,50 +36,84 @@ vec3 shading(vec3 normal)
 /// IMPLICIT CODE ///
 #ifdef implicit
 
+//#define debug 1
+
+#ifdef debug
+const float EPSILON=.0001;
+const uint MAX_STEPS=1;
 #define NEARPLANE 0.
 #define FARPLANE length(vec3(10))
+#define gl_GlobalInvocationID uvec3(1)
+#else
+const float EPSILON=.0001;
+const uint MAX_STEPS=50;
+#define NEARPLANE 0.
+#define FARPLANE length(vec3(10))
+#define gl_GlobalInvocationID uvec3(1)
+#endif
+#include "intervals.glsl"
 
-#include "interpreter.glsl"
-
+#ifdef debug
 vec3 getNormal(vec3 p,float dens){
     vec3 n;
-    n.x=scene(vec3(p.x+EPSILON,p.y,p.z),false);
-    n.y=scene(vec3(p.x,p.y+EPSILON,p.z),false);
-    n.z=scene(vec3(p.x,p.y,p.z+EPSILON),false);
-    return normalize(n-(scene(p,false)));
+    n.x=sceneoverride(vec3(p.x+EPSILON,p.y,p.z),false).x;
+    n.y=sceneoverride(vec3(p.x,p.y+EPSILON,p.z),false).x;
+    n.z=sceneoverride(vec3(p.x,p.y,p.z+EPSILON),false).x;
+    return normalize(n-(sceneoverride(p,false).x));
 }
 
 vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
     vec2 td=vec2(NEARPLANE,1.);
     p=ori;
     for(int i=0;i<MAX_STEPS&&td.y>EPSILON&&td.x<FARPLANE;i++){
-        td.y=scene(p,false);
+        td.y=sceneoverride(p,false).x;
         td.x+=(td.y)*.9;
         p=ori+dir*td.x;
     }
     return td;
 }
+#else
+vec3 getNormal(vec3 p,float dens){
+    vec3 n;
+    n.x=sceneoverride(vec3(p.x+EPSILON,p.y,p.z),false);
+    n.y=sceneoverride(vec3(p.x,p.y+EPSILON,p.z),false);
+    n.z=sceneoverride(vec3(p.x,p.y,p.z+EPSILON),false);
+    return normalize(n-(sceneoverride(p,false)));
+}
+
+vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
+    vec2 td=vec2(NEARPLANE,1.);
+    p=ori;
+    for(int i=0;i<MAX_STEPS&&td.y>EPSILON&&td.x<FARPLANE;i++){
+        td.y=sceneoverride(p,false);
+        td.x+=(td.y)*.9;
+        p=ori+dir*td.x;
+    }
+    return td;
+}
+#endif
 
 //Implicit Surface Entrypoint
 void main(){
     default_mask();
     vec3 raypos=vertexInput.position.xyz;
-    vec2 iResolution=vec2(RES_X,RES_Y);
-    //#ifdef ssaa
-    //vec2 iuv=(gl_FragCoord.xy+gl_SamplePosition)/iResolution.xy*2.-1.;
-    //#else
-    vec2 iuv=(gl_FragCoord.xy)/iResolution.xy*2.-1.;
-    //#endif
-    vec2 uv=iuv;
-    uv.x*=iResolution.x/iResolution.y;
     vec3 p;
     vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
     //raypos-=vec3(5);
     
     //f_color=vec4(raydir,1.);
     //return;
+
+    #ifdef debug
+    f_color=vec4(sceneoverride(raypos,false),1);
+    return;
+    #endif
     
     vec2 td=spheretracing(raypos,raydir,p);
+    #ifdef debug
+    f_color=vec4(td,0,1);
+    return;
+    #endif
     vec3 n=getNormal(p,td.y);
     if(td.y<EPSILON)
     {

@@ -1,10 +1,10 @@
 // Implicit Mesh shader
 
-#version 450
+#version 460
 #extension GL_EXT_mesh_shader:require
 
 #include "include.glsl"
-#include "interpreter.glsl"
+#include "intervals.glsl"
 
 layout(local_size_x=1,local_size_y=1,local_size_z=1)in;
 layout(triangles,max_vertices=64,max_primitives=162)out;
@@ -22,16 +22,18 @@ void main()
     
     vec3 signingvec=sign((inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
     
-    clear_stacks();
+    //clear_stacks();
     default_mask();
+
+    #define CLIPCHECK 65536
     
     float[6]bounds={
-        1048576-scene(vec3(1048576,0,0),false),
-        1048576-scene(vec3(0,1048576,0),false),
-        1048576-scene(vec3(0,0,1048576),false),
-        -1048576+scene(vec3(-1048576,0,0),false),
-        -1048576+scene(vec3(0,-1048576,0),false),
-        -1048576+scene(vec3(0,0,-1048576),false),
+        CLIPCHECK-sceneoverride(vec3(CLIPCHECK,0,0),false),
+        CLIPCHECK-sceneoverride(vec3(0,CLIPCHECK,0),false),
+        CLIPCHECK-sceneoverride(vec3(0,0,CLIPCHECK),false),
+        -CLIPCHECK+sceneoverride(vec3(-CLIPCHECK,0,0),false),
+        -CLIPCHECK+sceneoverride(vec3(0,-CLIPCHECK,0),false),
+        -CLIPCHECK+sceneoverride(vec3(0,0,-CLIPCHECK),false),
     };
     
     vec4[8]positions={
