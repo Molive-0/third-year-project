@@ -602,12 +602,12 @@ fn main() {
                 let mut data = [[0u32; 4]; 29];
 
                 let parts = vec![
-                    CSGPart::opcode(InstructionSet::OPDupVec3, 0b000000),
-                    CSGPart::opcode(InstructionSet::OPSubVec3Vec3, 0b010000),
+                    //CSGPart::opcode(InstructionSet::OPDupVec3, 0b000000),
+                    //CSGPart::opcode(InstructionSet::OPSubVec3Vec3, 0b010000),
                     CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
-                    CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
-                    CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
-                    CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
+                    //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
+                    //CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
+                    //CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
                     CSGPart::opcode(InstructionSet::OPStop, 0b000000),
                 ];
 
@@ -828,7 +828,7 @@ fn main() {
                         .into();
                     builder
                         .push_constants(implicit_pipeline.layout().clone(), 0, push_constants)
-                        .draw_mesh([1, 1, 1])
+                        .draw_mesh([1, 1, 2])
                         .unwrap();
                 }
 

@@ -6,6 +6,7 @@
 #include "instructionset.glsl"
 
 const float INFINITY = 1. / 0.;
+const float NINFINITY = (-1.) / 0.;
 
 struct Description{
     uint scene;
@@ -16,6 +17,7 @@ struct Description{
     uint mat2s;
     uint mat3s;
     uint mat4s;
+    uint dependencies;
 };
 
 layout(set=0,binding=2)restrict readonly buffer SceneDescription{
@@ -49,6 +51,9 @@ layout(set=0,binding=10)restrict readonly buffer Mat4Const{
 layout(set=0,binding=11)restrict readonly buffer MatConst{
     mat4 mats[];
 }matconst;
+layout(set=0,binding=12)restrict readonly buffer DepInfo{
+    uint8_t dependencies[2][];
+}depinfo;
 
 // unpack integers
 #define get_caches u32vec4 major_unpack=scenes.opcodes[major_position+desc.scene];\
@@ -548,10 +553,28 @@ void default_mask()
     in1[1]=trunc(in1[1]);\
 }
 
+Description desc;
+
+void pruneall (uint8_t pos) {
+    uint8_t[2] deps;
+    for (int i = 0; i < pos; i++)
+    {
+        deps = depinfo.dependencies[desc.dependencies+i];
+        if (deps[1] != 255) {
+            //this is a dual output function (dup)
+            //todo
+        }
+        else if (deps[0] == pos) {
+            pruneall(i);
+        }
+    }
+    mask[pos>>3] &= ~(1<<(pos&7));
+}
+
 #ifdef debug
-vec3 scene(vec3 p[2])
+vec3 scene(vec3 p[2], bool prune)
 #else
-float[2]scene(vec3 p[2])
+float[2]scene(vec3 p[2], bool prune)
 #endif
 {
     uint major_position=0;
@@ -559,7 +582,7 @@ float[2]scene(vec3 p[2])
     
     uint minor_integer_cache[8];
 
-    Description desc = scene_description.desc[gl_GlobalInvocationID.x];
+    desc = scene_description.desc[gl_GlobalInvocationID.x];
     
     clear_stacks();
     push_vec3(p);
@@ -1219,7 +1242,7 @@ float[2]scene(vec3 p[2])
                         float[2]in1=pull_float(ifconst(0));
                         if (floor((in1[0]/PI)) == floor((in1[1]/PI)))
                         {
-                            in1[0] = -INFINITY;
+                            in1[0] = NINFINITY;
                             in1[1] = INFINITY;
                         }
                         else {
