@@ -52,7 +52,7 @@ layout(set=0,binding=11)restrict readonly buffer MatConst{
     mat4 mats[];
 }matconst;
 layout(set=0,binding=12)restrict readonly buffer DepInfo{
-    uint8_t dependencies[2][];
+    uint8_t dependencies[][2];
 }depinfo;
 
 // unpack integers
@@ -557,18 +557,55 @@ Description desc;
 
 void pruneall (uint8_t pos) {
     uint8_t[2] deps;
-    for (int i = 0; i < pos; i++)
+    for (uint8_t i = uint8_t(0); i < pos; i++)
     {
         deps = depinfo.dependencies[desc.dependencies+i];
         if (deps[1] != 255) {
-            //this is a dual output function (dup)
-            //todo
+            if ((deps[0] == pos) || (deps[1] == pos))
+            {
+                if ((mask[i>>3] & ~(1<<(i&7))) > 0)
+                {
+                    mask[i>>3] &= uint8_t(~(1<<(i&7)));
+                }
+                else {
+                    pruneall(i);
+                }
+            }
         }
         else if (deps[0] == pos) {
             pruneall(i);
         }
     }
-    mask[pos>>3] &= ~(1<<(pos&7));
+    mask[pos>>3] &= uint8_t(~(1<<(pos&7)));
+}
+
+void prunesome (uint8_t pos, bool prunemask[6]) {
+    uint8_t[2] deps;
+    int maskindex = 0;
+    for (uint8_t i = uint8_t(0); i < pos; i++)
+    {
+        deps = depinfo.dependencies[desc.dependencies+i];
+        if (deps[1] != 255) {
+            if ((deps[0] == pos) || (deps[1] == pos))
+            {
+                if (prunemask[maskindex++]) {
+                    if ((mask[i>>3] & ~(1<<(i&7))) > 0)
+                    {
+                        mask[i>>3] &= uint8_t(~(1<<(i&7)));
+                    }
+                    else {
+                        pruneall(i);
+                    }
+                }
+            }
+        }
+        else if (deps[0] == pos) {
+            if (prunemask[maskindex++]) {
+                pruneall(i);
+            }
+        }
+    }
+    mask[pos>>3] &= uint8_t(~(1<<(pos&7)));
 }
 
 #ifdef debug
@@ -2748,12 +2785,12 @@ float[2]scene(vec3 p[2], bool prune)
 #ifdef debug
 vec3 sceneoverride(vec3 p, bool m)
 {
-    return scene(vec3[2](p,p));
+    return scene(vec3[2](p,p), false);
 }
 #else
 float sceneoverride(vec3 p, bool m)
 {
-    return scene(vec3[2](p,p))[0];
+    return scene(vec3[2](p,p), false)[0];
 }
 #endif
 
