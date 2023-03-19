@@ -38,6 +38,8 @@ serde_json = "*"
 
 utf-8 = "*"
 
+rayon = "*"
+
 # using latest gits
 [patch.crates-io]
 vulkano = { path = "../vulkano/vulkano" }

@@ -104,5 +104,22 @@ void main()
             gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(0,2,4)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(2,4,6)+uvec3(vindex);
         }
+    } else
+    {
+        gl_MeshVerticesEXT[vindex+0].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+1].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+2].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+3].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+4].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+5].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+6].gl_Position=vec4(0,0,0,1);
+        gl_MeshVerticesEXT[vindex+7].gl_Position=vec4(0,0,0,1);
+
+        gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+1]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+2]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+3]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(0,0,0);
     }
 }

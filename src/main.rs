@@ -27,6 +27,7 @@ use vulkano::VulkanLibrary;
 use winit::event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode};
 
 use egui_winit_vulkano::Gui;
+use rayon::prelude::*;
 use vulkano::pipeline::StateMode::Fixed;
 use vulkano::{
     buffer::BufferUsage,
@@ -151,6 +152,7 @@ fn main() {
                 shader_float16: true,
                 shader_int16: true,
                 shader_int8: true,
+                storage_buffer8_bit_access: true,
                 ..Features::empty()
             },
             ..Default::default()
@@ -231,9 +233,6 @@ fn main() {
         }
     }
 
-    let mesh_vs = mesh_vs::load(device.clone()).unwrap();
-    let mesh_fs = mesh_fs::load(device.clone()).unwrap();
-
     mod implicit_ms {
         vulkano_shaders::shader! {
             ty: "mesh",
@@ -263,8 +262,56 @@ fn main() {
         }
     }
 
-    let implicit_ms = implicit_ms::load(device.clone()).unwrap();
-    let implicit_fs = implicit_fs::load(device.clone()).unwrap();
+    let loaders: Vec<
+        fn(
+            ::std::sync::Arc<::vulkano::device::Device>,
+        ) -> Result<
+            ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+            ::vulkano::shader::ShaderCreationError,
+        >,
+    > = vec![
+        ((mesh_vs::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
+        ((mesh_fs::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
+        ((implicit_ms::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
+        ((implicit_fs::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
+    ];
+
+    let pariter = loaders
+        .par_iter()
+        .map(|load| load(device.clone()).unwrap())
+        .collect::<Vec<_>>();
+
+    let mesh_vs = pariter[0].clone();
+    let mesh_fs = pariter[1].clone();
+
+    let implicit_ms = pariter[2].clone();
+    let implicit_fs = pariter[3].clone();
+
+    drop(pariter);
 
     let memory_allocator = Arc::new(MemoryAllocator::new_default(device.clone()));
 
@@ -611,6 +658,8 @@ fn main() {
                     CSGPart::opcode(InstructionSet::OPStop, 0b000000),
                 ];
 
+                let dependencies: Vec<[u8; 2]> = vec![[1, 255], [255, 255]];
+
                 let floats: Vec<f32> = vec![0.2, 0.2, 0.05];
 
                 let vec2s: Vec<[f32; 2]> = vec![[0.; 2]];
@@ -657,6 +706,7 @@ fn main() {
                     mat2s: 0,
                     mat3s: 0,
                     mat4s: 0,
+                    dependencies: 0,
                 };
 
                 let descvec = vec![desc];
@@ -707,6 +757,13 @@ fn main() {
                     .allocate_slice((mats.len() as u64).max(1))
                     .unwrap();
                 csg_mats.write().unwrap().copy_from_slice(&mats[..]);
+                let csg_depends = uniform_buffer
+                    .allocate_slice((dependencies.len() as u64).max(1))
+                    .unwrap();
+                csg_depends
+                    .write()
+                    .unwrap()
+                    .copy_from_slice(&dependencies[..]);
 
                 let mesh_layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
                 let mesh_set = PersistentDescriptorSet::new(
@@ -732,10 +789,11 @@ fn main() {
                         WriteDescriptorSet::buffer(5, csg_vec2s.clone()),
                         WriteDescriptorSet::buffer(6, csg_vec3s.clone()),
                         WriteDescriptorSet::buffer(7, csg_vec4s.clone()),
-                        WriteDescriptorSet::buffer(8, csg_mat2s.clone()),
-                        WriteDescriptorSet::buffer(9, csg_mat3s.clone()),
-                        WriteDescriptorSet::buffer(10, csg_mat4s.clone()),
+                        //WriteDescriptorSet::buffer(8, csg_mat2s.clone()),
+                        //WriteDescriptorSet::buffer(9, csg_mat3s.clone()),
+                        //WriteDescriptorSet::buffer(10, csg_mat4s.clone()),
                         //WriteDescriptorSet::buffer(11, csg_mats.clone()),
+                        WriteDescriptorSet::buffer(12, csg_depends.clone()),
                     ],
                 )
                 .unwrap();

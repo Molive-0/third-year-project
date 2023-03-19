@@ -720,6 +720,7 @@ dependencies = [
  "egui",
  "egui_winit_vulkano",
  "obj",
+ "rayon",
  "rodio",
  "serde",
  "serde_json",

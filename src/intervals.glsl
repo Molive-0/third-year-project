@@ -74,11 +74,11 @@ vec3 vec3_stack[8][2];
 uint vec3_stack_head=0;
 vec4 vec4_stack[8][2];
 uint vec4_stack_head=0;
-mat2 mat2_stack[4][2];
+mat2 mat2_stack[1][2];
 uint mat2_stack_head=0;
-mat3 mat3_stack[4][2];
+mat3 mat3_stack[1][2];
 uint mat3_stack_head=0;
-mat4 mat4_stack[4][2];
+mat4 mat4_stack[1][2];
 uint mat4_stack_head=0;
 
 uint float_const_head=0;
@@ -233,7 +233,8 @@ void clear_stacks()
     mat4_const_head=0;
 }
 
-uint8_t mask[29];
+const int masklen = 29;
+uint8_t mask[masklen];
 
 void default_mask()
 {
@@ -554,58 +555,159 @@ void default_mask()
 }
 
 Description desc;
+//0 - prune nothing
+//1 - prune myself
+//2 - prune myself and children
+uint8_t pruneallchecks[(masklen*8)+1];
 
-void pruneall (uint8_t pos) {
+void pruneall (int pos) {
     uint8_t[2] deps;
-    for (uint8_t i = uint8_t(0); i < pos; i++)
+    for (int i = pos-1; i >= 0; i--)
     {
         deps = depinfo.dependencies[desc.dependencies+i];
         if (deps[1] != 255) {
-            if ((deps[0] == pos) || (deps[1] == pos))
+            switch (int((pruneallchecks[deps[0]] << 4) | (pruneallchecks[deps[1]] << 2) | (pruneallchecks[i] << 0)))
             {
-                if ((mask[i>>3] & ~(1<<(i&7))) > 0)
-                {
-                    mask[i>>3] &= uint8_t(~(1<<(i&7)));
-                }
-                else {
-                    pruneall(i);
-                }
+                case ((2 << 4) | (2 << 2) | (2 << 0)):
+                case ((2 << 4) | (1 << 2) | (2 << 0)):
+                case ((2 << 4) | (0 << 2) | (2 << 0)):
+                case ((1 << 4) | (2 << 2) | (2 << 0)):
+                case ((1 << 4) | (1 << 2) | (2 << 0)):
+                case ((1 << 4) | (0 << 2) | (2 << 0)):
+                case ((0 << 4) | (2 << 2) | (2 << 0)):
+                case ((0 << 4) | (1 << 2) | (2 << 0)):
+                case ((0 << 4) | (0 << 2) | (2 << 0)):
+
+                case ((2 << 4) | (2 << 2) | (1 << 0)):
+                case ((2 << 4) | (2 << 2) | (0 << 0)):
+                case ((2 << 4) | (1 << 2) | (1 << 0)):
+                case ((1 << 4) | (2 << 2) | (1 << 0)):
+                pruneallchecks[i]=uint8_t(2);
+                mask[i>>3] &= uint8_t(~(1<<(i&7)));
+                break;
+
+                case ((2 << 4) | (1 << 2) | (0 << 0)):
+                case ((2 << 4) | (0 << 2) | (0 << 0)):
+                case ((1 << 4) | (2 << 2) | (0 << 0)):
+                case ((0 << 4) | (2 << 2) | (0 << 0)):
+                case ((0 << 4) | (0 << 2) | (1 << 0)):
+                case ((1 << 4) | (1 << 2) | (1 << 0)):
+                case ((2 << 4) | (0 << 2) | (1 << 0)):
+                case ((0 << 4) | (2 << 2) | (1 << 0)):
+                case ((0 << 4) | (1 << 2) | (1 << 0)):
+                case ((1 << 4) | (0 << 2) | (1 << 0)):
+                pruneallchecks[i]=uint8_t(1);
+                mask[i>>3] &= uint8_t(~(1<<(i&7)));
+                break;
+
+                case ((1 << 4) | (1 << 2) | (0 << 0)):
+                case ((1 << 4) | (0 << 2) | (0 << 0)):
+                case ((0 << 4) | (1 << 2) | (0 << 0)):
+                case ((0 << 4) | (0 << 2) | (0 << 0)):
+                default:
+                break;
             }
         }
-        else if (deps[0] == pos) {
-            pruneall(i);
+        else if (pruneallchecks[i] > 0)
+        {
+            mask[i>>3] &= uint8_t(~(1<<(i&7)));
+        }
+        else if (pruneallchecks[deps[0]] > 1) {
+            pruneallchecks[i]=uint8_t(2);
+            mask[i>>3] &= uint8_t(~(1<<(i&7)));
         }
     }
-    mask[pos>>3] &= uint8_t(~(1<<(pos&7)));
 }
 
-void prunesome (uint8_t pos, bool prunemask[6]) {
+void prunesome (int pos, bool prunemask[6]) {
     uint8_t[2] deps;
     int maskindex = 0;
-    for (uint8_t i = uint8_t(0); i < pos; i++)
+    for (int i = 0; i < pos; i++)
     {
         deps = depinfo.dependencies[desc.dependencies+i];
         if (deps[1] != 255) {
-            if ((deps[0] == pos) || (deps[1] == pos))
-            {
+            if (deps[0] == pos) {
                 if (prunemask[maskindex++]) {
-                    if ((mask[i>>3] & ~(1<<(i&7))) > 0)
-                    {
-                        mask[i>>3] &= uint8_t(~(1<<(i&7)));
-                    }
-                    else {
-                        pruneall(i);
-                    }
+                    pruneallchecks[i]++;
                 }
             }
+            if (deps[1] == pos) {
+                if (prunemask[maskindex++]) {
+                    pruneallchecks[i]++;
+                }
+            }
+            //pruneallchecks[i] = min(pruneallchecks[i],2);
         }
         else if (deps[0] == pos) {
             if (prunemask[maskindex++]) {
-                pruneall(i);
+                pruneallchecks[i]=uint8_t(2);
             }
         }
     }
-    mask[pos>>3] &= uint8_t(~(1<<(pos&7)));
+}
+
+void passthroughself (int pos) {
+    pruneallchecks[pos]=uint8_t(1);
+}
+void pruneself (int pos) {
+    pruneallchecks[pos]=uint8_t(2);
+}
+
+#define maskdefine (mask[major_position]&(1<<minor_position))==0
+#define inputmask1(m_in_1) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    break;\
+}
+#define inputmask2(m_in_1,m_in_2) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    if(ifconst(1)) {m_in_2++;}\
+    break;\
+}
+#define inputmask3(m_in_1,m_in_2,m_in_3) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    if(ifconst(1)) {m_in_2++;}\
+    if(ifconst(2)) {m_in_3++;}\
+    break;\
+}
+#define inputmask4(m_in_1,m_in_2,m_in_3,m_in_4) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    if(ifconst(1)) {m_in_2++;}\
+    if(ifconst(2)) {m_in_3++;}\
+    if(ifconst(3)) {m_in_4++;}\
+    break;\
+}
+#define inputmask5(m_in_1,m_in_2,m_in_3,m_in_4,m_in_5) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    if(ifconst(1)) {m_in_2++;}\
+    if(ifconst(2)) {m_in_3++;}\
+    if(ifconst(3)) {m_in_4++;}\
+    if(ifconst(4)) {m_in_5++;}\
+    break;\
+}
+#define inputmask6(m_in_1,m_in_2,m_in_3,m_in_4,m_in_5,m_in_6) if(maskdefine){\
+    if(ifconst(0)) {m_in_1++;}\
+    if(ifconst(1)) {m_in_2++;}\
+    if(ifconst(2)) {m_in_3++;}\
+    if(ifconst(3)) {m_in_4++;}\
+    if(ifconst(4)) {m_in_5++;}\
+    if(ifconst(5)) {m_in_6++;}\
+    break;\
+}
+
+#define minpruning if (all(lessThan(in1[1],in2[0]))) {\
+    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
+    passthroughself(OPPos);\
+} else if (all(lessThan(in2[1],in1[0]))) {\
+    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
+    passthroughself(OPPos);\
+}
+
+#define maxpruning if (all(greaterThan(in1[0],in2[1]))) {\
+    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
+    passthroughself(OPPos);\
+} else if (all(greaterThan(in2[0],in1[1]))) {\
+    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
+    passthroughself(OPPos);\
 }
 
 #ifdef debug
@@ -640,12 +742,12 @@ float[2]scene(vec3 p[2], bool prune)
         return vec3(0.,1.,0.);
         #endif*/
 
-        if((mask[major_position]&(1<<minor_position))>0)
-        {
                 switch(minor_integer_cache[minor_position]&1023)
                 {
                     #define ifconst(pos) (minor_integer_cache[minor_position] & (1 << (15 - pos))) > 0
+                    #define OPPos int((major_position<<3)|minor_position)
                     case OPAddFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         add;
@@ -653,6 +755,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         add;
@@ -660,6 +763,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec2Float:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         add;
@@ -667,6 +771,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         add;
@@ -674,6 +779,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec3Float:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         add;
@@ -681,6 +787,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         add;
@@ -688,6 +795,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAddVec4Float:{
+                        inputmask2(vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         add;
@@ -696,6 +804,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPSubFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         subtract;
@@ -703,6 +812,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         subtract;
@@ -710,6 +820,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec2Float:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         subtract;
@@ -717,6 +828,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         subtract;
@@ -724,6 +836,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec3Float:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         subtract;
@@ -731,6 +844,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         subtract;
@@ -738,6 +852,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSubVec4Float:{
+                        inputmask2(vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         subtract;
@@ -746,6 +861,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPMulFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[4]temp;
@@ -754,6 +870,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[4]temp;
@@ -762,6 +879,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec2Float:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec2[4]temp;
@@ -770,6 +888,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[4]temp;
@@ -778,6 +897,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec3Float:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec3[4]temp;
@@ -786,6 +906,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[4]temp;
@@ -794,6 +915,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMulVec4Float:{
+                        inputmask2(vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec4[4]temp;
@@ -803,6 +925,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPDivFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[4]temp;
@@ -811,6 +934,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[4]temp;
@@ -819,6 +943,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec2Float:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec2[4]temp;
@@ -827,6 +952,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[4]temp;
@@ -835,6 +961,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec3Float:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec3[4]temp;
@@ -843,6 +970,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[4]temp;
@@ -851,6 +979,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDivVec4Float:{
+                        inputmask2(vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec4[4]temp;
@@ -860,6 +989,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPPowFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[4]temp;
@@ -868,6 +998,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPowVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[4]temp;
@@ -876,6 +1007,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPowVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[4]temp;
@@ -884,6 +1016,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPowVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[4]temp;
@@ -893,6 +1026,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPModFloatFloat:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float a=in1[0]/in2[0];
@@ -916,6 +1050,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec2Vec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[4]temp;
@@ -927,6 +1062,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec2Float:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec2[4]temp;
@@ -938,6 +1074,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec3Vec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[4]temp;
@@ -949,6 +1086,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec3Float:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec3[4]temp;
@@ -960,6 +1098,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec4Vec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[4]temp;
@@ -971,6 +1110,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPModVec4Float:{
+                        inputmask2(vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         vec4[4]temp;
@@ -984,6 +1124,7 @@ float[2]scene(vec3 p[2], bool prune)
 
 
                     case OPCrossVec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         /*#define getminmaxleft minleft = min(minleft, check); maxleft = max(maxleft, check);
                         #define getminmaxright minright = min(minright, check); maxright = max(maxright, check);
                         #define resetminmax minleft = 9999999999; minright = minleft; maxleft = -9999999999; maxright = maxleft;
@@ -1051,6 +1192,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPDotVec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         float[2]out1;
@@ -1059,6 +1201,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDotVec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         float[2]out1;
@@ -1067,6 +1210,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDotVec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         float[2]out1;
@@ -1076,6 +1220,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPLengthVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         bvec2 mixer = bvec2(false);
                         vec2 zero = vec2(0);
@@ -1085,6 +1230,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLengthVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         bvec3 mixer = bvec3(false);
                         vec3 zero = vec3(0);
@@ -1094,6 +1240,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLengthVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         bvec4 mixer = bvec4(false);
                         vec4 zero = vec4(0);
@@ -1104,6 +1251,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPDistanceVec2:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         bvec2 mixer = bvec2(false);
@@ -1114,6 +1262,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDistanceVec3:{
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         bvec3 mixer = bvec3(false);
@@ -1124,6 +1273,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPDistanceVec4:{
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         bvec4 mixer = bvec4(false);
@@ -1135,6 +1285,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPAbsFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float a=abs(in1[0]);
                         float b=abs(in1[1]);
@@ -1151,6 +1302,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSignFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         signof;
@@ -1158,6 +1310,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFloorFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         floorof;
@@ -1165,6 +1318,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCeilFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         ceilingof;
@@ -1172,6 +1326,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFractFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         if (floor(in1[0]) == floor(in1[1])) {
@@ -1186,6 +1341,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSqrtFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         squarerootof;
@@ -1193,6 +1349,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPInverseSqrtFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         inversesquarerootof;
@@ -1200,6 +1357,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExpFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         exponentof;
@@ -1207,6 +1365,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExp2Float: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         exponent2of;
@@ -1214,6 +1373,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLogFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         logarithmof;
@@ -1221,6 +1381,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLog2Float: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         logarithm2of;
@@ -1228,6 +1389,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float a=sin(in1[0]);
                         float b=sin(in1[1]);
@@ -1252,6 +1414,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCosFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float a=cos(in1[0]);
                         float b=cos(in1[1]);
@@ -1276,6 +1439,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         if (floor((in1[0]/PI)) == floor((in1[1]/PI)))
                         {
@@ -1290,6 +1454,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         arcsineof;
@@ -1297,6 +1462,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcosFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         arccosineof;
@@ -1304,6 +1470,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanFloat: {
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         arctangentof;
@@ -1311,6 +1478,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcoshFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         hyperbolicarccosineof;
@@ -1318,6 +1486,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinhFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         hyperbolicarcsineof;
@@ -1325,6 +1494,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanhFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         hyperbolicarctangentof;
@@ -1332,6 +1502,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCoshFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         if ((in1[1] > 0) && (in1[0] < 0))
                         {
@@ -1345,6 +1516,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinhFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         hyperbolicsineof;
@@ -1352,6 +1524,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanhFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         hyperbolictangentof;
@@ -1359,6 +1532,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPRoundFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         roundof;
@@ -1366,6 +1540,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTruncFloat:{
+                        inputmask1(float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]temp;
                         truncof;
@@ -1374,8 +1549,18 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     case OPMinMaterialFloat:
                     case OPMinFloat: {
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
+                        if (in1[1] < in2[0])
+                        {
+                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
+                            passthroughself(OPPos);
+                        } else if (in2[1] < in1[0])
+                        {
+                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
+                            passthroughself(OPPos);
+                        }
                         float[2]temp;
                         minimum;
                         push_float(in1);
@@ -1383,14 +1568,25 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     case OPMaxMaterialFloat:
                     case OPMaxFloat: {
+                        inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
+                        if (in1[0] > in2[1])
+                        {
+                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
+                            passthroughself(OPPos);
+                        } else if (in2[0] > in1[1])
+                        {
+                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
+                            passthroughself(OPPos);
+                        }
                         float[2]temp;
                         maximum;
                         push_float(in1);
                     }
                     break;
                     case OPFMAFloat: {
+                        inputmask3(float_const_head,float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -1401,6 +1597,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPAbsVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer = bvec2(false);
@@ -1410,6 +1607,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSignVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         signof;
@@ -1417,6 +1615,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFloorVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         floorof;
@@ -1424,6 +1623,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCeilVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         ceilingof;
@@ -1431,6 +1631,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFractVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer = bvec2(false);
@@ -1441,6 +1642,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSqrtVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         squarerootof;
@@ -1448,6 +1650,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPInverseSqrtVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         inversesquarerootof;
@@ -1455,6 +1658,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExpVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         exponentof;
@@ -1462,6 +1666,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExp2Vec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         exponent2of;
@@ -1469,6 +1674,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLogVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         logarithmof;
@@ -1476,6 +1682,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLog2Vec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         logarithm2of;
@@ -1483,6 +1690,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer1 = bvec2(false);
@@ -1498,6 +1706,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCosVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer1 = bvec2(false);
@@ -1513,6 +1722,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer1 = bvec2(false);
@@ -1522,6 +1732,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         arcsineof;
@@ -1529,6 +1740,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcosVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         arccosineof;
@@ -1536,6 +1748,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanVec2: {
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         arctangentof;
@@ -1543,6 +1756,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcoshVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         hyperbolicarccosineof;
@@ -1550,6 +1764,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinhVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         hyperbolicarcsineof;
@@ -1557,6 +1772,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanhVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         hyperbolicarctangentof;
@@ -1564,6 +1780,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCoshVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         bvec2 mixer = bvec2(false);
@@ -1575,6 +1792,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinhVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         hyperbolicsineof;
@@ -1582,6 +1800,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanhVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         hyperbolictangentof;
@@ -1589,6 +1808,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPRoundVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         roundof;
@@ -1596,6 +1816,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTruncVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]temp;
                         truncof;
@@ -1603,22 +1824,27 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMinVec2: {
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
+                        minpruning;
                         vec2[2]temp;
                         minimum;
                         push_vec2(in1);
                     }
                     break;
                     case OPMaxVec2: {
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
+                        maxpruning;
                         vec2[2]temp;
                         maximum;
                         push_vec2(in1);
                     }
                     break;
                     case OPFMAVec2: {
+                        inputmask3(vec2_const_head,vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[2]in3=pull_vec2(ifconst(2));
@@ -1629,6 +1855,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPAbsVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer = bvec3(false);
@@ -1638,6 +1865,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSignVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         signof;
@@ -1645,6 +1873,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFloorVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         floorof;
@@ -1652,6 +1881,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCeilVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         ceilingof;
@@ -1659,6 +1889,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFractVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer = bvec3(false);
@@ -1669,6 +1900,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSqrtVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         squarerootof;
@@ -1676,6 +1908,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPInverseSqrtVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         inversesquarerootof;
@@ -1683,6 +1916,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExpVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         exponentof;
@@ -1690,6 +1924,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExp2Vec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         exponent2of;
@@ -1697,6 +1932,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLogVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         logarithmof;
@@ -1704,6 +1940,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLog2Vec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         logarithm2of;
@@ -1711,6 +1948,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer1 = bvec3(false);
@@ -1726,6 +1964,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCosVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer1 = bvec3(false);
@@ -1741,6 +1980,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer1 = bvec3(false);
@@ -1750,6 +1990,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         arcsineof;
@@ -1757,6 +1998,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcosVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         arccosineof;
@@ -1764,6 +2006,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanVec3: {
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         arctangentof;
@@ -1771,6 +2014,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcoshVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         hyperbolicarccosineof;
@@ -1778,6 +2022,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinhVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         hyperbolicarcsineof;
@@ -1785,6 +2030,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanhVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         hyperbolicarctangentof;
@@ -1792,6 +2038,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCoshVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         bvec3 mixer = bvec3(false);
@@ -1803,6 +2050,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinhVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         hyperbolicsineof;
@@ -1810,6 +2058,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanhVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         hyperbolictangentof;
@@ -1817,6 +2066,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPRoundVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         roundof;
@@ -1824,6 +2074,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTruncVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]temp;
                         truncof;
@@ -1831,22 +2082,27 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMinVec3: {
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
+                        minpruning;
                         vec3[2]temp;
                         minimum;
                         push_vec3(in1);
                     }
                     break;
                     case OPMaxVec3: {
+                        inputmask2(vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
+                        maxpruning;
                         vec3[2]temp;
                         maximum;
                         push_vec3(in1);
                     }
                     break;
                     case OPFMAVec3: {
+                        inputmask3(vec3_const_head,vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[2]in3=pull_vec3(ifconst(2));
@@ -1857,6 +2113,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPAbsVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer = bvec4(false);
@@ -1866,6 +2123,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSignVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         signof;
@@ -1873,6 +2131,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFloorVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         floorof;
@@ -1880,6 +2139,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCeilVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         ceilingof;
@@ -1887,6 +2147,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPFractVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer = bvec4(false);
@@ -1897,6 +2158,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSqrtVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         squarerootof;
@@ -1904,6 +2166,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPInverseSqrtVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         inversesquarerootof;
@@ -1911,6 +2174,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExpVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         exponentof;
@@ -1918,6 +2182,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPExp2Vec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         exponent2of;
@@ -1925,6 +2190,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLogVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         logarithmof;
@@ -1932,6 +2198,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPLog2Vec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         logarithm2of;
@@ -1939,6 +2206,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer1 = bvec4(false);
@@ -1954,6 +2222,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCosVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer1 = bvec4(false);
@@ -1969,6 +2238,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer1 = bvec4(false);
@@ -1978,6 +2248,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         arcsineof;
@@ -1985,6 +2256,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcosVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         arccosineof;
@@ -1992,6 +2264,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanVec4: {
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         arctangentof;
@@ -1999,6 +2272,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAcoshVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         hyperbolicarccosineof;
@@ -2006,6 +2280,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAsinhVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         hyperbolicarcsineof;
@@ -2013,6 +2288,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPAtanhVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         hyperbolicarctangentof;
@@ -2020,6 +2296,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCoshVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         bvec4 mixer = bvec4(false);
@@ -2031,6 +2308,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSinhVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         hyperbolicsineof;
@@ -2038,6 +2316,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTanhVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         hyperbolictangentof;
@@ -2045,6 +2324,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPRoundVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         roundof;
@@ -2052,6 +2332,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPTruncVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]temp;
                         truncof;
@@ -2059,22 +2340,27 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMinVec4: {
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
+                        minpruning;
                         vec4[2]temp;
                         minimum;
                         push_vec4(in1);
                     }
                     break;
                     case OPMaxVec4: {
+                        inputmask2(vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
+                        maxpruning;
                         vec4[2]temp;
                         maximum;
                         push_vec4(in1);
                     }
                     break;
                     case OPFMAVec4: {
+                        inputmask3(vec4_const_head,vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[2]in3=pull_vec4(ifconst(2));
@@ -2085,6 +2371,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPClampFloatFloat:{
+                        inputmask3(float_const_head,float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2093,6 +2380,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixFloatFloat:{
+                        inputmask3(float_const_head,float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2101,6 +2389,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec2Vec2:{
+                        inputmask3(vec2_const_head,vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[2]in3=pull_vec2(ifconst(2));
@@ -2109,6 +2398,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec2Vec2:{
+                        inputmask3(vec2_const_head,vec2_const_head,vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         vec2[2]in3=pull_vec2(ifconst(2));
@@ -2117,6 +2407,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec2Float:{
+                        inputmask3(vec2_const_head,float_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2125,6 +2416,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec2Float:{
+                        inputmask3(vec2_const_head,vec2_const_head,float_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         vec2[2]in2=pull_vec2(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2133,6 +2425,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec3Vec3:{
+                        inputmask3(vec3_const_head,vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[2]in3=pull_vec3(ifconst(2));
@@ -2141,6 +2434,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec3Vec3:{
+                        inputmask3(vec3_const_head,vec3_const_head,vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         vec3[2]in3=pull_vec3(ifconst(2));
@@ -2149,6 +2443,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec3Float:{
+                        inputmask3(vec3_const_head,float_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2157,6 +2452,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec3Float:{
+                        inputmask3(vec3_const_head,vec3_const_head,float_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         vec3[2]in2=pull_vec3(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2165,6 +2461,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec4Vec4:{
+                        inputmask3(vec4_const_head,vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[2]in3=pull_vec4(ifconst(2));
@@ -2173,6 +2470,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec4Vec4:{
+                        inputmask3(vec4_const_head,vec4_const_head,vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         vec4[2]in3=pull_vec4(ifconst(2));
@@ -2181,6 +2479,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPClampVec4Float:{
+                        inputmask3(vec4_const_head,float_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2189,6 +2488,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPMixVec4Float:{
+                        inputmask3(vec4_const_head,vec4_const_head,float_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         vec4[2]in2=pull_vec4(ifconst(1));
                         float[2]in3=pull_float(ifconst(2));
@@ -2198,6 +2498,7 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     
                     case OPNormalizeVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2]in1=pull_vec2(ifconst(0));
                         bvec2 mixer=mix(bvec2(false),greaterThan(in1[1],vec2(0)),lessThan(in1[0],vec2(0)));
                         vec2 smallest=mix(min(abs(in1[0]),abs(in1[1])),vec2(0),mixer);
@@ -2224,6 +2525,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPNormalizeVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2]in1=pull_vec3(ifconst(0));
                         bvec3 mixer=mix(bvec3(false),greaterThan(in1[1],vec3(0)),lessThan(in1[0],vec3(0)));
                         vec3 smallest=mix(min(abs(in1[0]),abs(in1[1])),vec3(0),mixer);
@@ -2254,6 +2556,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPNormalizeVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2]in1=pull_vec4(ifconst(0));
                         bvec4 mixer=mix(bvec4(false),greaterThan(in1[1],vec4(0)),lessThan(in1[0],vec4(0)));
                         vec4 smallest=mix(min(abs(in1[0]),abs(in1[1])),vec4(0),mixer);
@@ -2289,12 +2592,14 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
 
                     case OPPromoteFloatFloatVec2:{
+                        inputmask2(float_const_head,float_const_head);
                         float[2] a = pull_float(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         push_vec2(vec2[2](vec2(a[0],b[0]),vec2(a[1],b[1])));
                     }
                     break;
                     case OPPromoteFloatFloatFloatVec3:{
+                        inputmask3(float_const_head,float_const_head,float_const_head);
                         float[2] a = pull_float(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         float[2] c = pull_float(ifconst(2));
@@ -2302,12 +2607,14 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPromoteVec2FloatVec3:{
+                        inputmask2(vec2_const_head,float_const_head);
                         vec2[2] a = pull_vec2(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         push_vec3(vec3[2](vec3(a[0],b[0]),vec3(a[1],b[1])));
                     }
                     break;
                     case OPPromoteFloatFloatFloatFloatVec4:{
+                        inputmask4(float_const_head,float_const_head,float_const_head,float_const_head);
                         float[2] a = pull_float(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         float[2] c = pull_float(ifconst(2));
@@ -2316,6 +2623,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPromoteVec2FloatFloatVec4:{
+                        inputmask3(vec2_const_head,float_const_head,float_const_head);
                         vec2[2] a = pull_vec2(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         float[2] c = pull_float(ifconst(2));
@@ -2323,18 +2631,21 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPPromoteVec3FloatVec4:{
+                        inputmask2(vec3_const_head,float_const_head);
                         vec3[2] a = pull_vec3(ifconst(0));
                         float[2] b = pull_float(ifconst(1));
                         push_vec4(vec4[2](vec4(a[0],b[0]),vec4(a[1],b[1])));
                     }
                     break;
                     case OPPromoteVec2Vec2Vec4:{
+                        inputmask2(vec2_const_head,vec2_const_head);
                         vec2[2] a = pull_vec2(ifconst(0));
                         vec2[2] b = pull_vec2(ifconst(1));
                         push_vec4(vec4[2](vec4(a[0],b[0]),vec4(a[1],b[1])));
                     }
                     break;
 
+                    /*
                     case OPDemoteMat2Float:{
                     mat2[2] mat2temp=pull_mat2(ifconst(0));
                     push_float(float[2](mat2temp[0][1].y,mat2temp[1][1].y));
@@ -2390,8 +2701,10 @@ float[2]scene(vec3 p[2], bool prune)
                     push_float(float[2](vec4temp[0].x,vec4temp[1].x));
                     }
                     break;
+                    */
 
                     case OPSquareFloat:{
+                        inputmask1(float_const_head);
                         float[2] in1 = pull_float(ifconst(0));
                         float[2] out1;
                         if (in1[1] > 0 && in1[0] < 0)
@@ -2406,6 +2719,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCubeFloat:{
+                        inputmask1(float_const_head);
                         float[2] in1 = pull_float(ifconst(0));
                         float[2] out1;
                         bool mixer = false;
@@ -2415,6 +2729,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSquareVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2] in1 = pull_vec2(ifconst(0));
                         vec2[2] out1;
                         bvec2 mixer = bvec2(false);
@@ -2424,6 +2739,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCubeVec2:{
+                        inputmask1(vec2_const_head);
                         vec2[2] in1 = pull_vec2(ifconst(0));
                         vec2[2] out1;
                         bvec2 mixer = bvec2(false);
@@ -2433,6 +2749,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSquareVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2] in1 = pull_vec3(ifconst(0));
                         vec3[2] out1;
                         bvec3 mixer = bvec3(false);
@@ -2442,6 +2759,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCubeVec3:{
+                        inputmask1(vec3_const_head);
                         vec3[2] in1 = pull_vec3(ifconst(0));
                         vec3[2] out1;
                         bvec3 mixer = bvec3(false);
@@ -2451,6 +2769,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPSquareVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2] in1 = pull_vec4(ifconst(0));
                         vec4[2] out1;
                         bvec4 mixer = bvec4(false);
@@ -2460,6 +2779,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
                     case OPCubeVec4:{
+                        inputmask1(vec4_const_head);
                         vec4[2] in1 = pull_vec4(ifconst(0));
                         vec4[2] out1;
                         bvec4 mixer = bvec4(false);
@@ -2471,6 +2791,12 @@ float[2]scene(vec3 p[2], bool prune)
 
                     case OPSmoothMinMaterialFloat:
                     case OPSmoothMinFloat:{
+                        if(maskdefine){
+                            if(ifconst(0)) {float_const_head++;}
+                            if(ifconst(1)) {float_const_head++;}
+                            float_const_head++;
+                            break;
+                        }
                         float k=cpull_float();
                         float[2] a=pull_float(ifconst(0));
                         float[2] b=pull_float(ifconst(1));
@@ -2483,6 +2809,12 @@ float[2]scene(vec3 p[2], bool prune)
                     break;
                     case OPSmoothMaxMaterialFloat:
                     case OPSmoothMaxFloat:{
+                        if(maskdefine){
+                            if(ifconst(0)) {float_const_head++;}
+                            if(ifconst(1)) {float_const_head++;}
+                            float_const_head++;
+                            break;
+                        }
                         float k=cpull_float();
                         float[2] a=pull_float(ifconst(0));
                         float[2] b=pull_float(ifconst(1));
@@ -2494,6 +2826,7 @@ float[2]scene(vec3 p[2], bool prune)
                     }
                     break;
 
+                    /*
                     case OPSwap2Float:{
                         float[2]floattemp=float_stack[float_stack_head-1];
                         float_stack[float_stack_head-1]=float_stack[float_stack_head-2];
@@ -2511,6 +2844,7 @@ float[2]scene(vec3 p[2], bool prune)
                         float_stack[float_stack_head-1]=float_stack[float_stack_head-4];
                         float_stack[float_stack_head-4]=floattemp;
                     }
+                    */
                     break;
                     case OPDupFloat:{
                         push_float(float_stack[float_stack_head-1]);
@@ -2528,6 +2862,7 @@ float[2]scene(vec3 p[2], bool prune)
                         push_float(float_stack[float_stack_head-4]);
                     }
                     break;
+                    /*
                     case OPDropFloat:{
                         float_stack_head--;
                     }
@@ -2550,6 +2885,8 @@ float[2]scene(vec3 p[2], bool prune)
                         float_stack_head--;
                     }
                     break;
+                    */
+                    /*
                     case OPSwap2Vec2:{
                         vec2[2]vec2temp=vec2_stack[vec2_stack_head-1];
                         vec2_stack[vec2_stack_head-1]=vec2_stack[vec2_stack_head-2];
@@ -2568,6 +2905,7 @@ float[2]scene(vec3 p[2], bool prune)
                         vec2_stack[vec2_stack_head-4]=vec2temp;
                     }
                     break;
+                    */
                     case OPDupVec2:{
                         push_vec2(vec2_stack[vec2_stack_head-1]);
                     }
@@ -2584,6 +2922,7 @@ float[2]scene(vec3 p[2], bool prune)
                         push_vec2(vec2_stack[vec2_stack_head-4]);
                     }
                     break;
+                    /*
                     case OPDropVec2:{
                         vec2_stack_head--;
                     }
@@ -2606,6 +2945,8 @@ float[2]scene(vec3 p[2], bool prune)
                         vec2_stack_head--;
                     }
                     break;
+                    */
+                    /*
                     case OPSwap2Vec3:{
                         vec3[2]vec3temp=vec3_stack[vec3_stack_head-1];
                         vec3_stack[vec3_stack_head-1]=vec3_stack[vec3_stack_head-2];
@@ -2624,6 +2965,7 @@ float[2]scene(vec3 p[2], bool prune)
                         vec3_stack[vec3_stack_head-4]=vec3temp;
                     }
                     break;
+                    */
                     case OPDupVec3:{
                         push_vec3(vec3_stack[vec3_stack_head-1]);
                     }
@@ -2640,6 +2982,7 @@ float[2]scene(vec3 p[2], bool prune)
                         push_vec3(vec3_stack[vec3_stack_head-4]);
                     }
                     break;
+                    /*
                     case OPDropVec3:{
                         vec3_stack_head--;
                     }
@@ -2662,6 +3005,8 @@ float[2]scene(vec3 p[2], bool prune)
                         vec3_stack_head--;
                     }
                     break;
+                    */
+                    /*
                     case OPSwap2Vec4:{
                         vec4[2]vec4temp=vec4_stack[vec4_stack_head-1];
                         vec4_stack[vec4_stack_head-1]=vec4_stack[vec4_stack_head-2];
@@ -2680,6 +3025,7 @@ float[2]scene(vec3 p[2], bool prune)
                         vec4_stack[vec4_stack_head-4]=vec4temp;
                     }
                     break;
+                    */
                     case OPDupVec4:{
                         push_vec4(vec4_stack[vec4_stack_head-1]);
                     }
@@ -2696,6 +3042,7 @@ float[2]scene(vec3 p[2], bool prune)
                         push_vec4(vec4_stack[vec4_stack_head-4]);
                     }
                     break;
+                    /*
                     case OPDropVec4:{
                         vec4_stack_head--;
                     }
@@ -2718,10 +3065,12 @@ float[2]scene(vec3 p[2], bool prune)
                         vec4_stack_head--;
                     }
                     break;
+                    */
                     
 
                     case OPSDFSphere:
                     {
+                        inputmask2(float_const_head,vec3_const_head);
                         float[2] in2=pull_float(ifconst(0));
                         /*#ifdef debug
                         return vec3(in2[0],in2[1],0.);
@@ -2747,6 +3096,7 @@ float[2]scene(vec3 p[2], bool prune)
                     case OPNop:
                     break;
                     case OPStop:
+                    pruneall(uint8_t((major_position<<3)|minor_position));
                     #ifdef debug
                     return vec3(pull_float(ifconst(0))[0]);
                     #else
@@ -2760,22 +3110,19 @@ float[2]scene(vec3 p[2], bool prune)
                     return float[2](0,0);
                     #endif
                 }
-            /*}else{
-                //return vec3(float(minor_float_cache[minor_position]));
-                push_float(float[2](float(minor_float_cache[minor_position]),float(minor_float_cache[minor_position])));
-            }*/
-        }
+        
         minor_position++;
         if(minor_position==8)
         {
             minor_position=0;
             major_position++;
-            if(major_position==13)
+            if(major_position==masklen)
             {
+                pruneall(uint8_t((masklen*8)));
                 #ifdef debug
-                return vec3(pull_float(ifconst(0))[0]);
+                return vec3(pull_float(false)[0]);
                 #else
-                return pull_float(ifconst(0));
+                return pull_float(false);
                 #endif
             }
         }
