@@ -1,6 +1,7 @@
 //  global fragment shader
 
 #version 460
+#extension GL_EXT_mesh_shader:require
 #include "include.glsl"
 
 #ifdef implicit
@@ -53,6 +54,10 @@ const uint MAX_STEPS=50;
 #endif
 #include "intervals.glsl"
 
+layout(set=0,binding=20)restrict readonly buffer fragmentMasks{
+    uint8_t masks[][masklen];
+}fragmentpassmasks;
+
 #ifdef debug
 vec3 getNormal(vec3 p,float dens){
     vec3 n;
@@ -95,7 +100,8 @@ vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
 
 //Implicit Surface Entrypoint
 void main(){
-    default_mask();
+    //default_mask();
+    mask = fragmentpassmasks.masks[gl_PrimitiveID];
     vec3 raypos=vertexInput.position.xyz;
     vec3 p;
     vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);

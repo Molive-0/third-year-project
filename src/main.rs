@@ -6,6 +6,7 @@ use cgmath::{
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
+use vulkano::buffer::{Buffer, BufferAllocateInfo, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
@@ -14,7 +15,7 @@ use vulkano::format::Format;
 use vulkano::half::f16;
 use vulkano::image::view::ImageViewCreateInfo;
 use vulkano::image::{AttachmentImage, SampleCount};
-use vulkano::memory::allocator::StandardMemoryAllocator;
+use vulkano::memory::allocator::{MemoryAllocatePreference, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::multisample::MultisampleState;
 use vulkano::pipeline::graphics::rasterization::CullMode;
@@ -100,6 +101,7 @@ fn main() {
     let device_extensions = DeviceExtensions {
         khr_swapchain: true,
         ext_mesh_shader: true,
+        khr_fragment_shading_rate: true,
         ..DeviceExtensions::empty()
     };
 
@@ -149,10 +151,12 @@ fn main() {
                 mesh_shader: true,
                 task_shader: true,
                 sample_rate_shading: true,
-                shader_float16: true,
+                //shader_float16: true,
                 shader_int16: true,
                 shader_int8: true,
                 storage_buffer8_bit_access: true,
+                geometry_shader: true,
+                primitive_fragment_shading_rate: true,
                 ..Features::empty()
             },
             ..Default::default()
@@ -356,7 +360,7 @@ fn main() {
         depth_range: 0.0..1.0,
     };
 
-    let [RES_X, RES_Y] = images[0].dimensions().width_height();
+    //let [RES_X, RES_Y] = images[0].dimensions().width_height();
     let ([mut mesh_pipeline, mut implicit_pipeline], mut framebuffers) =
         window_size_dependent_setup(
             &memory_allocator,
@@ -375,8 +379,6 @@ fn main() {
 
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-
-    let mut render_start = Instant::now();
 
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
 
@@ -445,6 +447,10 @@ fn main() {
     gstate
         .lights
         .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.05));
+
+    let fragment_masks_buffer = object_size_dependent_setup(&memory_allocator, &gstate);
+
+    let mut render_start = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::WindowEvent { event: we, .. } = &event {
@@ -794,6 +800,7 @@ fn main() {
                         //WriteDescriptorSet::buffer(10, csg_mat4s.clone()),
                         //WriteDescriptorSet::buffer(11, csg_mats.clone()),
                         WriteDescriptorSet::buffer(12, csg_depends.clone()),
+                        WriteDescriptorSet::buffer(20, fragment_masks_buffer.clone()),
                     ],
                 )
                 .unwrap();
@@ -1028,6 +1035,8 @@ where
         .build(allocator.device().clone())
         .unwrap();
 
+    println!("Recompiling implicit pipeline... (may take up to 10 minutes)");
+
     let implicit_pipeline = GraphicsPipeline::start()
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
         .vertex_input_state(OVertex::per_vertex())
@@ -1058,5 +1067,25 @@ where
         .build(allocator.device().clone())
         .unwrap();
 
+    println!("Implicit pipeline compiled");
+
     ([mesh_pipeline, implicit_pipeline], framebuffers)
+}
+
+fn object_size_dependent_setup(
+    allocator: &StandardMemoryAllocator,
+    state: &GState,
+) -> Subbuffer<[[u8; 29]]> {
+    let fragment_masks_buffer = Buffer::new_slice(
+        allocator.clone(),
+        BufferAllocateInfo {
+            buffer_usage: BufferUsage::STORAGE_BUFFER,
+            memory_usage: MemoryUsage::GpuOnly,
+            allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
+            ..Default::default()
+        },
+        (state.csg.len() * (4 * 4 * 4) * (3 * 3 * 3) * 29) as u64,
+    )
+    .unwrap();
+    fragment_masks_buffer
 }

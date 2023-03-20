@@ -14,14 +14,12 @@ layout(location=0)out VertexOutput
     vec4 position;
 }vertexOutput[];
 
+layout(set=0,binding=20)restrict writeonly buffer fragmentMasks{
+    uint8_t masks[][masklen];
+}fragmentpassmasks;
+
 void main()
-{
-    uint iid=gl_LocalInvocationID.x;
-    
-    vec4 offset=vec4(0.,0.,gl_GlobalInvocationID.x,0.);
-    
-    vec3 signingvec=sign((inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
-    
+{    
     //clear_stacks();
     default_mask();
 
@@ -53,6 +51,8 @@ void main()
     uint vindex = gl_LocalInvocationID.x*8;
     uint pindex = gl_LocalInvocationID.x*6;
 
+    int GlobalInvocationIndex = int(gl_GlobalInvocationID.z*gl_NumWorkGroups.x*gl_NumWorkGroups.y+gl_GlobalInvocationID.y*gl_NumWorkGroups.x+gl_GlobalInvocationID.x);
+
     //adjust scale and position
     for (int i = 0; i<8; i++)
     {
@@ -62,10 +62,13 @@ void main()
         positions[i].z += (bounds[2]-bounds[5])*0.25 * (floor(gl_LocalInvocationID.x/16.)-1.5+gl_WorkGroupID.z*2.);
     }
 
+    bvec3 signingvec=greaterThan((inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz,(positions[0].xyz+positions[7].xyz)/2);
+
     float[2] check = scene(vec3[2](vec3(positions[0].xyz),vec3(positions[7].xyz)), true);
     if ((check[0] < 0) && (check[1] > 0))
     {
-        //mat4 sw=pc.world;
+        fragmentpassmasks.masks[GlobalInvocationIndex]=mask;
+        
         gl_MeshVerticesEXT[vindex+0].gl_Position=mvp*(positions[0]);
         gl_MeshVerticesEXT[vindex+1].gl_Position=mvp*(positions[1]);
         gl_MeshVerticesEXT[vindex+2].gl_Position=mvp*(positions[2]);
@@ -83,27 +86,34 @@ void main()
         vertexOutput[vindex+6].position=(positions[6]);
         vertexOutput[vindex+7].position=(positions[7]);
 
-        if(signingvec.x>0){
+        if(signingvec.x){
             gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(4,5,6)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+1]=uvec3(5,6,7)+uvec3(vindex);
         }else{
             gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(0,1,2)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+1]=uvec3(1,2,3)+uvec3(vindex);
         }
-        if(signingvec.y>0){
+        if(signingvec.y){
             gl_PrimitiveTriangleIndicesEXT[pindex+2]=uvec3(2,3,6)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+3]=uvec3(7,3,6)+uvec3(vindex);
         }else{
             gl_PrimitiveTriangleIndicesEXT[pindex+2]=uvec3(0,1,4)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+3]=uvec3(5,1,4)+uvec3(vindex);
         }
-        if(signingvec.z>0){
+        if(signingvec.z){
             gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(1,3,5)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(3,5,7)+uvec3(vindex);
         }else{
             gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(0,2,4)+uvec3(vindex);
             gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(2,4,6)+uvec3(vindex);
         }
+
+        gl_MeshPrimitivesEXT[pindex+0].gl_PrimitiveID=GlobalInvocationIndex;
+        gl_MeshPrimitivesEXT[pindex+1].gl_PrimitiveID=GlobalInvocationIndex;
+        gl_MeshPrimitivesEXT[pindex+2].gl_PrimitiveID=GlobalInvocationIndex;
+        gl_MeshPrimitivesEXT[pindex+3].gl_PrimitiveID=GlobalInvocationIndex;
+        gl_MeshPrimitivesEXT[pindex+4].gl_PrimitiveID=GlobalInvocationIndex;
+        gl_MeshPrimitivesEXT[pindex+5].gl_PrimitiveID=GlobalInvocationIndex;
     } else
     {
         gl_MeshVerticesEXT[vindex+0].gl_Position=vec4(0,0,0,1);
@@ -115,11 +125,18 @@ void main()
         gl_MeshVerticesEXT[vindex+6].gl_Position=vec4(0,0,0,1);
         gl_MeshVerticesEXT[vindex+7].gl_Position=vec4(0,0,0,1);
 
-        gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(0,0,0);
-        gl_PrimitiveTriangleIndicesEXT[pindex+1]=uvec3(0,0,0);
-        gl_PrimitiveTriangleIndicesEXT[pindex+2]=uvec3(0,0,0);
-        gl_PrimitiveTriangleIndicesEXT[pindex+3]=uvec3(0,0,0);
-        gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(0,0,0);
-        gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(0,0,0);
+        gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(vindex);
+        gl_PrimitiveTriangleIndicesEXT[pindex+1]=uvec3(vindex);
+        gl_PrimitiveTriangleIndicesEXT[pindex+2]=uvec3(vindex);
+        gl_PrimitiveTriangleIndicesEXT[pindex+3]=uvec3(vindex);
+        gl_PrimitiveTriangleIndicesEXT[pindex+4]=uvec3(vindex);
+        gl_PrimitiveTriangleIndicesEXT[pindex+5]=uvec3(vindex);
+        
+        gl_MeshPrimitivesEXT[pindex+0].gl_PrimitiveID=0;
+        gl_MeshPrimitivesEXT[pindex+1].gl_PrimitiveID=0;
+        gl_MeshPrimitivesEXT[pindex+2].gl_PrimitiveID=0;
+        gl_MeshPrimitivesEXT[pindex+3].gl_PrimitiveID=0;
+        gl_MeshPrimitivesEXT[pindex+4].gl_PrimitiveID=0;
+        gl_MeshPrimitivesEXT[pindex+5].gl_PrimitiveID=0;
     }
 }
