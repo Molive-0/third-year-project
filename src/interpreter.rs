@@ -1,104 +1,49 @@
-#extension GL_EXT_shader_explicit_arithmetic_types:require
+use crate::instruction_set::InstructionSet;
 
-#ifndef intervals
-#define intervals 1
-
-#include "instructionset.glsl"
-
-const float INFINITY = 1. / 0.;
-const float NINFINITY = (-1.) / 0.;
-
-struct Description{
-    uint scene;
-    uint floats;
-    uint vec2s;
-    uint vec3s;
-    uint vec4s;
-    uint mat2s;
-    uint mat3s;
-    uint mat4s;
-    uint mats;
-    uint dependencies;
+use cgmath::{
+    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector2,
+    Vector3, Vector4,
 };
-Description desc;
 
-layout(set=0,binding=2)restrict readonly buffer SceneDescription{
-    Description desc[];
-}scene_description;
+struct Interpreter<'csg>
+{
+    float_stack: [[f32;2];8],
+    float_stack_head: usize,
+    vec2_stack: [[Vector2;2];8],
+    vec2_stack_head: usize,
+    vec3_stack: [[Vector3;2];8],
+    vec3_stack_head: usize,
+    vec4_stack: [[Vector4;2];8],
+    vec4_stack_head: usize,
+    mat2_stack: [[Matrix2;2];1],
+    mat2_stack_head: usize,
+    mat3_stack: [[Matrix3;2];1],
+    mat3_stack_head: usize,
+    mat4_stack: [[Matrix4;2];1],
+    mat4_stack_head: usize,
 
-layout(set=0,binding=3)restrict readonly buffer SceneBuf{
-    u32vec4 opcodes[];
-}scenes;
-layout(set=0,binding=4)restrict readonly buffer FloatConst{
-    float floats[];
-}fconst;
-layout(set=0,binding=5)restrict readonly buffer Vec2Const{
-    vec2 vec2s[];
-}v2const;
-layout(set=0,binding=6)restrict readonly buffer Vec3Const{
-    vec3 vec3s[];
-}v3const;
-layout(set=0,binding=7)restrict readonly buffer Vec4Const{
-    vec4 vec4s[];
-}v4const;
-layout(set=0,binding=8)restrict readonly buffer Mat2Const{
-    mat2 mat2s[];
-}m2const;
-layout(set=0,binding=9)restrict readonly buffer Mat3Const{
-    mat3 mat3s[];
-}m3const;
-layout(set=0,binding=10)restrict readonly buffer Mat4Const{
-    mat4 mat4s[];
-}m4const;
-layout(set=0,binding=11)restrict readonly buffer MatConst{
-    mat4 mats[];
-}matconst;
-layout(set=0,binding=12)restrict readonly buffer DepInfo{
-    uint8_t dependencies[][2];
-}depinfo;
+    float_const_head: usize,
+    vec2_const_head: usize,
+    vec3_const_head: usize,
+    vec4_const_head: usize,
+    mat2_const_head: usize,
+    mat3_const_head: usize,
+    mat4_const_head: usize,
+    
+    csg: &'csg CSG,
+}
+impl<'csg> Interpreter<'csg>
+{
 
-// unpack integers
-#define get_caches u32vec4 major_unpack=scenes.opcodes[desc.scene+major_position];\
-minor_integer_cache[0]=major_unpack.x&65535;\
-minor_integer_cache[1]=major_unpack.x>>16;\
-minor_integer_cache[2]=major_unpack.y&65535;\
-minor_integer_cache[3]=major_unpack.y>>16;\
-minor_integer_cache[4]=major_unpack.z&65535;\
-minor_integer_cache[5]=major_unpack.z>>16;\
-minor_integer_cache[6]=major_unpack.w&65535;\
-minor_integer_cache[7]=major_unpack.w>>16;
-
-float float_stack[8][2];
-uint float_stack_head=0;
-vec2 vec2_stack[8][2];
-uint vec2_stack_head=0;
-vec3 vec3_stack[8][2];
-uint vec3_stack_head=0;
-vec4 vec4_stack[8][2];
-uint vec4_stack_head=0;
-mat2 mat2_stack[1][2];
-uint mat2_stack_head=0;
-mat3 mat3_stack[1][2];
-uint mat3_stack_head=0;
-mat4 mat4_stack[1][2];
-uint mat4_stack_head=0;
-
-uint float_const_head=0;
-uint vec2_const_head=0;
-uint vec3_const_head=0;
-uint vec4_const_head=0;
-uint mat2_const_head=0;
-uint mat3_const_head=0;
-uint mat4_const_head=0;
-uint mat_const_head=0;
-
-void push_float(float f[2]){
-    float_stack[float_stack_head++]=f;
+fn push_float(f: [f32;2]) -> () {
+    float_stack[float_stack_head]=f;
+    float_stack_head+=1;
 }
 
-float[2]pull_float(bool c){
-    if (c) {
-        float f = fconst.floats[desc.floats+float_const_head++];
+fn pull_float(c: bool) -> [f32;2] {
+    if c {
+        let f = fconst.floats[float_const_head];
+        float_const_head+=1;
         return float[2](f,f);
     }
     else {
@@ -107,7 +52,7 @@ float[2]pull_float(bool c){
 }
 
 float cpull_float(){
-    return fconst.floats[desc.floats+float_const_head++];
+    return fconst.floats[float_const_head++];
 }
 
 void push_vec2(vec2 f[2]){
@@ -116,7 +61,7 @@ void push_vec2(vec2 f[2]){
 
 vec2[2]pull_vec2(bool c){
     if (c) {
-        vec2 f = v2const.vec2s[desc.vec2s+vec2_const_head++];
+        vec2 f = v2const.vec2s[vec2_const_head++];
         return vec2[2](f,f);
     }
     else {
@@ -125,7 +70,7 @@ vec2[2]pull_vec2(bool c){
 }
 
 vec2 cpull_vec2(){
-    return v2const.vec2s[desc.vec2s+vec2_const_head++];
+    return v2const.vec2s[vec2_const_head++];
 }
 
 void push_vec3(vec3 f[2]){
@@ -134,7 +79,7 @@ void push_vec3(vec3 f[2]){
 
 vec3[2]pull_vec3(bool c){
     if (c) {
-        vec3 f = v3const.vec3s[desc.vec3s+vec3_const_head++];
+        vec3 f = v3const.vec3s[vec3_const_head++];
         return vec3[2](f,f);
     }
     else {
@@ -143,7 +88,7 @@ vec3[2]pull_vec3(bool c){
 }
 
 vec3 cpull_vec3(){
-    return v3const.vec3s[desc.vec3s+vec3_const_head++];
+    return v3const.vec3s[vec3_const_head++];
 }
 
 void push_vec4(vec4 f[2]){
@@ -152,7 +97,7 @@ void push_vec4(vec4 f[2]){
 
 vec4[2]pull_vec4(bool c){
     if (c) {
-        vec4 f = v4const.vec4s[desc.vec4s+vec4_const_head++];
+        vec4 f = v4const.vec4s[vec4_const_head++];
         return vec4[2](f,f);
     }
     else {
@@ -161,7 +106,7 @@ vec4[2]pull_vec4(bool c){
 }
 
 vec4 cpull_vec4(){
-    return v4const.vec4s[desc.vec4s+vec4_const_head++];
+    return v4const.vec4s[vec4_const_head++];
 }
 
 void push_mat2(mat2 f[2]){
@@ -170,7 +115,7 @@ void push_mat2(mat2 f[2]){
 
 mat2[2]pull_mat2(bool c){
     if (c) {
-        mat2 f = m2const.mat2s[desc.mat2s+mat2_const_head++];
+        mat2 f = m2const.mat2s[mat2_const_head++];
         return mat2[2](f,f);
     }
     else {
@@ -179,7 +124,7 @@ mat2[2]pull_mat2(bool c){
 }
 
 mat2 cpull_mat2(){
-    return m2const.mat2s[desc.mat2s+mat2_const_head++];
+    return m2const.mat2s[mat2_const_head++];
 }
 
 void push_mat3(mat3 f[2]){
@@ -188,7 +133,7 @@ void push_mat3(mat3 f[2]){
 
 mat3[2]pull_mat3(bool c){
     if (c) {
-        mat3 f = m3const.mat3s[desc.mat3s+mat3_const_head++];
+        mat3 f = m3const.mat3s[mat3_const_head++];
         return mat3[2](f,f);
     }
     else {
@@ -197,7 +142,7 @@ mat3[2]pull_mat3(bool c){
 }
 
 mat3 cpull_mat3(){
-    return m3const.mat3s[desc.mat3s+mat3_const_head++];
+    return m3const.mat3s[mat3_const_head++];
 }
 
 void push_mat4(mat4 f[2]){
@@ -206,7 +151,7 @@ void push_mat4(mat4 f[2]){
 
 mat4[2]pull_mat4(bool c){
     if (c) {
-        mat4 f = m4const.mat4s[desc.mat4s+mat4_const_head++];
+        mat4 f = m4const.mat4s[mat4_const_head++];
         return mat4[2](f,f);
     }
     else {
@@ -215,7 +160,7 @@ mat4[2]pull_mat4(bool c){
 }
 
 mat4 cpull_mat4(){
-    return m4const.mat4s[desc.mat4s+mat4_const_head++];
+    return m4const.mat4s[mat4_const_head++];
 }
 
 void clear_stacks()
@@ -234,7 +179,6 @@ void clear_stacks()
     mat2_const_head=0;
     mat3_const_head=0;
     mat4_const_head=0;
-    mat_const_head=0;
 }
 
 const int masklen = 29;
@@ -558,6 +502,7 @@ void default_mask()
     in1[1]=trunc(in1[1]);\
 }
 
+Description desc;
 //0 - prune nothing
 //1 - prune myself
 //2 - prune myself and children
@@ -697,21 +642,21 @@ void pruneself (int pos) {
     break;\
 }
 
-#define minpruning if (prune) { if (all(lessThan(in1[1],in2[0]))) {\
+#define minpruning if (all(lessThan(in1[1],in2[0]))) {\
     prunesome(OPPos,bool[6](false,true,false,false,false,false));\
     passthroughself(OPPos);\
 } else if (all(lessThan(in2[1],in1[0]))) {\
     prunesome(OPPos,bool[6](true,false,false,false,false,false));\
     passthroughself(OPPos);\
-}}
+}
 
-#define maxpruning if (prune) { if (all(greaterThan(in1[0],in2[1]))) {\
+#define maxpruning if (all(greaterThan(in1[0],in2[1]))) {\
     prunesome(OPPos,bool[6](false,true,false,false,false,false));\
     passthroughself(OPPos);\
 } else if (all(greaterThan(in2[0],in1[1]))) {\
     prunesome(OPPos,bool[6](true,false,false,false,false,false));\
     passthroughself(OPPos);\
-}}
+}
 
 #ifdef debug
 vec3 scene(vec3 p[2], bool prune)
@@ -724,7 +669,7 @@ float[2]scene(vec3 p[2], bool prune)
     
     uint minor_integer_cache[8];
 
-    desc = scene_description.desc[(DescriptionIndex)+1];
+    desc = scene_description.desc[gl_GlobalInvocationID.x];
     
     clear_stacks();
     push_vec3(p);
@@ -735,22 +680,15 @@ float[2]scene(vec3 p[2], bool prune)
         if(minor_position==0){
             get_caches;
         }
-        #ifdef debug
-        /*if((minor_integer_cache[minor_position]&1023)==OPStop) {
+        /*#ifdef debug
+        if((minor_integer_cache[minor_position]&1023)==OPStop) {
             return vec3(0.,0.,1.);
         }
         if((minor_integer_cache[minor_position]&1023)==OPSDFSphere) {
             return vec3(1.,0.,0.);
-        }*/
-        /*if((minor_integer_cache[minor_position] & (1 << (15 - 1))) > 0) {
-            return vec3(1.,0.,0.);
         }
-        if((minor_integer_cache[minor_position] & (1 << (15 - 0))) > 0) {
-            return vec3(0.,0.,1.);
-        }*/
-        //return vec3(0.,1.,0.);
-        return vec3(desc.floats,desc.scene,DescriptionIndex);
-        #endif
+        return vec3(0.,1.,0.);
+        #endif*/
 
                 switch(minor_integer_cache[minor_position]&1023)
                 {
@@ -1562,7 +1500,6 @@ float[2]scene(vec3 p[2], bool prune)
                         inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
-                        if (prune) {
                         if (in1[1] < in2[0])
                         {
                             prunesome(OPPos,bool[6](false,true,false,false,false,false));
@@ -1571,7 +1508,7 @@ float[2]scene(vec3 p[2], bool prune)
                         {
                             prunesome(OPPos,bool[6](true,false,false,false,false,false));
                             passthroughself(OPPos);
-                        }}
+                        }
                         float[2]temp;
                         minimum;
                         push_float(in1);
@@ -1582,7 +1519,6 @@ float[2]scene(vec3 p[2], bool prune)
                         inputmask2(float_const_head,float_const_head);
                         float[2]in1=pull_float(ifconst(0));
                         float[2]in2=pull_float(ifconst(1));
-                        if (prune) {
                         if (in1[0] > in2[1])
                         {
                             prunesome(OPPos,bool[6](false,true,false,false,false,false));
@@ -1591,7 +1527,7 @@ float[2]scene(vec3 p[2], bool prune)
                         {
                             prunesome(OPPos,bool[6](true,false,false,false,false,false));
                             passthroughself(OPPos);
-                        }}
+                        }
                         float[2]temp;
                         maximum;
                         push_float(in1);
@@ -3084,13 +3020,9 @@ float[2]scene(vec3 p[2], bool prune)
                     {
                         inputmask2(float_const_head,vec3_const_head);
                         float[2] in2=pull_float(ifconst(0));
-                        #ifdef debug
-                        if (in2[0] == in2[1] && in2[0] == 0.2)
-                        {return vec3(in2[0],in2[1],0.);
-                        }else{
-                            return vec3(in2[0],in2[1],1.);
-                        }
-                        #endif
+                        /*#ifdef debug
+                        return vec3(in2[0],in2[1],0.);
+                        #endif*/
                         vec3[2] in1=pull_vec3(ifconst(1));
                         /*#ifdef debug
                         return in1[0];
@@ -3112,7 +3044,6 @@ float[2]scene(vec3 p[2], bool prune)
                     case OPNop:
                     break;
                     case OPStop:
-                    if (prune)
                     pruneall(uint8_t((major_position<<3)|minor_position));
                     #ifdef debug
                     return vec3(pull_float(ifconst(0))[0]);
@@ -3135,7 +3066,6 @@ float[2]scene(vec3 p[2], bool prune)
             major_position++;
             if(major_position==masklen)
             {
-                if (prune)
                 pruneall(uint8_t((masklen*8)));
                 #ifdef debug
                 return vec3(pull_float(false)[0]);
@@ -3159,4 +3089,4 @@ float sceneoverride(vec3 p, bool m)
 }
 #endif
 
-#endif//ifndef intervals
+}

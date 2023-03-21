@@ -2,6 +2,7 @@
 
 #version 460
 #extension GL_EXT_mesh_shader:require
+#define DescriptionIndex gl_PrimitiveID>>11
 #include "include.glsl"
 
 #ifdef implicit
@@ -107,8 +108,10 @@ void main(){
     vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
     //raypos-=vec3(5);
     
-    //f_color=vec4(raydir,1.);
-    //return;
+    /*f_color=vec4(raydir,1.);
+    return;*/
+    /*f_color=vertexInput.position;
+    return;*/
 
     #ifdef debug
     f_color=vec4(sceneoverride(raypos,false),1);
@@ -116,14 +119,14 @@ void main(){
     #endif
     
     vec2 td=spheretracing(raypos,raydir,p);
-    #ifdef debug
+    /*#ifdef debug
     f_color=vec4(td,0,1);
     return;
-    #endif
+    #endif*/
     vec3 n=getNormal(p,td.y);
     if(td.y<EPSILON)
     {
-        f_color=vec4(1.);
+        //f_color=vec4(1.);
         f_color=vec4(shading(n),1.);
         
         vec4 tpoint=camera_uniforms.proj*camera_uniforms.view*pc.world*vec4(p,1);

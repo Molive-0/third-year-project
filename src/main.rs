@@ -3,6 +3,8 @@ use cgmath::{
     Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector2,
     Vector3, Vector4,
 };
+use instruction_set::InputTypes;
+use vulkano::command_buffer::{CopyBufferInfo, PrimaryCommandBufferAbstract};
 use std::io::Cursor;
 use std::{sync::Arc, time::Instant};
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
@@ -10,7 +12,7 @@ use vulkano::buffer::{Buffer, BufferAllocateInfo, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::{DeviceOwned, Features, QueueFlags};
+use vulkano::device::{DeviceOwned, Features, QueueFlags, Queue};
 use vulkano::format::Format;
 use vulkano::half::f16;
 use vulkano::image::view::ImageViewCreateInfo;
@@ -105,7 +107,7 @@ fn main() {
         ..DeviceExtensions::empty()
     };
 
-    let (physical_device, queue_family_index) = instance
+    let (physical_device, (queue_family_index, transfer_index)) = instance
         .enumerate_physical_devices()
         .unwrap()
         .filter(|p| p.supported_extensions().contains(&device_extensions))
@@ -116,8 +118,21 @@ fn main() {
                 .position(|(i, q)| {
                     q.queue_flags.intersects(QueueFlags::GRAPHICS)
                         && p.surface_support(i as u32, &surface).unwrap_or(false)
-                })
-                .map(|i| (p, i as u32))
+                }).and_then( | graphics| {
+                    p.queue_family_properties()
+                .iter()
+                .enumerate()
+                .position(|(i, q)| {
+                    q.queue_flags.intersects(QueueFlags::TRANSFER) && i != graphics
+                }).or_else( || {
+                    p.queue_family_properties()
+                .iter()
+                .enumerate()
+                .position(|(i, q)| {
+                    q.queue_flags.intersects(QueueFlags::TRANSFER)
+                })}
+                
+                ).map(|i| (graphics as u32, i as u32))}).map(|i| (p, i))
         })
         .min_by_key(|(p, _)| {
             // We assign a lower score to device types that are likely to be faster/better.
@@ -146,6 +161,10 @@ fn main() {
             queue_create_infos: vec![QueueCreateInfo {
                 queue_family_index,
                 ..Default::default()
+            },
+            QueueCreateInfo {
+                queue_family_index: transfer_index,
+                ..Default::default()
             }],
             enabled_features: Features {
                 mesh_shader: true,
@@ -165,6 +184,7 @@ fn main() {
     .expect("Unable to initialize device");
 
     let queue = queues.next().expect("Unable to retrieve queues");
+    let transfer_queue = queues.next().expect("Unable to retrieve queues");
 
     let (mut swapchain, images) = {
         let surface_capabilities = device
@@ -251,6 +271,20 @@ fn main() {
         }
     }
 
+    mod implicit_ts {
+        vulkano_shaders::shader! {
+            ty: "task",
+            path: "src/implicit.task.glsl",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+
+                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
+            },
+            vulkan_version: "1.2",
+            spirv_version: "1.5"
+        }
+    }
+
     mod implicit_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
@@ -295,6 +329,13 @@ fn main() {
                 ::std::sync::Arc<::vulkano::shader::ShaderModule>,
                 ::vulkano::shader::ShaderCreationError,
             >),
+        ((implicit_ts::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
         ((implicit_fs::load)
             as fn(
                 ::std::sync::Arc<::vulkano::device::Device>,
@@ -313,7 +354,8 @@ fn main() {
     let mesh_fs = pariter[1].clone();
 
     let implicit_ms = pariter[2].clone();
-    let implicit_fs = pariter[3].clone();
+    let implicit_ts = pariter[3].clone();
+    let implicit_fs = pariter[4].clone();
 
     drop(pariter);
 
@@ -367,6 +409,7 @@ fn main() {
             &mesh_vs,
             &mesh_fs,
             &implicit_ms,
+            &implicit_ts,
             &implicit_fs,
             &images,
             render_pass.clone(),
@@ -448,7 +491,7 @@ fn main() {
         .lights
         .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.05));
 
-    let fragment_masks_buffer = object_size_dependent_setup(&memory_allocator, &gstate);
+    let subbuffers = object_size_dependent_setup(memory_allocator.clone(), &gstate, &command_buffer_allocator, transfer_queue.clone());
 
     let mut render_start = Instant::now();
 
@@ -547,6 +590,7 @@ fn main() {
                             &mesh_vs,
                             &mesh_fs,
                             &implicit_ms,
+                            &implicit_ts,
                             &implicit_fs,
                             &new_images,
                             render_pass.clone(),
@@ -652,125 +696,6 @@ fn main() {
                     sub
                 };
 
-                let mut data = [[0u32; 4]; 29];
-
-                let parts = vec![
-                    //CSGPart::opcode(InstructionSet::OPDupVec3, 0b000000),
-                    //CSGPart::opcode(InstructionSet::OPSubVec3Vec3, 0b010000),
-                    CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
-                    //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
-                    //CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
-                    //CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
-                    CSGPart::opcode(InstructionSet::OPStop, 0b000000),
-                ];
-
-                let dependencies: Vec<[u8; 2]> = vec![[1, 255], [255, 255]];
-
-                let floats: Vec<f32> = vec![0.2, 0.2, 0.05];
-
-                let vec2s: Vec<[f32; 2]> = vec![[0.; 2]];
-
-                let vec3s: Vec<[f32; 3]> = vec![[0., 0.2, 0.], [0., 0.2, 0.]];
-
-                let vec4s: Vec<[f32; 4]> = vec![[0.; 4]];
-
-                let mat2s: Vec<[f32; 4]> = vec![[0.; 4]];
-
-                let mat3s: Vec<[f32; 9]> = vec![[0.; 9]];
-
-                let mat4s: Vec<[f32; 16]> = vec![[0.; 16]];
-
-                let mats: Vec<[f32; 16]> = vec![[0.; 16]];
-
-                let mut lower = true;
-                let mut minor = 0;
-                let mut major = 0;
-
-                for part in parts {
-                    data[major][minor] |= (part.code as u32) << (if lower { 0 } else { 16 });
-
-                    lower = !lower;
-                    if lower {
-                        minor += 1;
-                        if minor == 4 {
-                            minor = 0;
-                            major += 1;
-                            if major == 29 {
-                                panic!("CSGParts Too full!");
-                            }
-                        }
-                    }
-                }
-
-                //println!("data: {:?}, {:?}", data[0][0], data[0][1]);
-                let desc = implicit_fs::ty::Description {
-                    scene: 0,
-                    floats: 0,
-                    vec2s: 0,
-                    vec3s: 0,
-                    vec4s: 0,
-                    mat2s: 0,
-                    mat3s: 0,
-                    mat4s: 0,
-                    dependencies: 0,
-                };
-
-                let descvec = vec![desc];
-
-                fn new_desc(
-                    input: &[implicit_fs::ty::Description],
-                ) -> &implicit_fs::ty::SceneDescription {
-                    unsafe { ::std::mem::transmute(input) }
-                }
-
-                let csg_object = uniform_buffer
-                    .allocate_slice((descvec.len() as u64).max(1))
-                    .unwrap();
-                csg_object.write().unwrap().copy_from_slice(&descvec[..]);
-                let csg_opcodes = uniform_buffer
-                    .allocate_slice((data.len() as u64).max(1))
-                    .unwrap();
-                csg_opcodes.write().unwrap().copy_from_slice(&data[..]);
-                let csg_floats = uniform_buffer
-                    .allocate_slice((floats.len() as u64).max(1))
-                    .unwrap();
-                csg_floats.write().unwrap().copy_from_slice(&floats[..]);
-                let csg_vec2s = uniform_buffer
-                    .allocate_slice((vec2s.len() as u64).max(1))
-                    .unwrap();
-                csg_vec2s.write().unwrap().copy_from_slice(&vec2s[..]);
-                let csg_vec3s = uniform_buffer
-                    .allocate_slice((vec3s.len() as u64).max(1))
-                    .unwrap();
-                csg_vec3s.write().unwrap().copy_from_slice(&vec3s[..]);
-                let csg_vec4s = uniform_buffer
-                    .allocate_slice((vec4s.len() as u64).max(1))
-                    .unwrap();
-                csg_vec4s.write().unwrap().copy_from_slice(&vec4s[..]);
-                let csg_mat2s = uniform_buffer
-                    .allocate_slice((mat2s.len() as u64).max(1))
-                    .unwrap();
-                csg_mat2s.write().unwrap().copy_from_slice(&mat2s[..]);
-                let csg_mat3s = uniform_buffer
-                    .allocate_slice((mat3s.len() as u64).max(1))
-                    .unwrap();
-                csg_mat3s.write().unwrap().copy_from_slice(&mat3s[..]);
-                let csg_mat4s = uniform_buffer
-                    .allocate_slice((mat4s.len() as u64).max(1))
-                    .unwrap();
-                csg_mat4s.write().unwrap().copy_from_slice(&mat4s[..]);
-                let csg_mats = uniform_buffer
-                    .allocate_slice((mats.len() as u64).max(1))
-                    .unwrap();
-                csg_mats.write().unwrap().copy_from_slice(&mats[..]);
-                let csg_depends = uniform_buffer
-                    .allocate_slice((dependencies.len() as u64).max(1))
-                    .unwrap();
-                csg_depends
-                    .write()
-                    .unwrap()
-                    .copy_from_slice(&dependencies[..]);
-
                 let mesh_layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
                 let mesh_set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
@@ -789,18 +714,18 @@ fn main() {
                     [
                         WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer.clone()),
                         WriteDescriptorSet::buffer(1, cam_set.clone()),
-                        WriteDescriptorSet::buffer(2, csg_object.clone()),
-                        WriteDescriptorSet::buffer(3, csg_opcodes.clone()),
-                        WriteDescriptorSet::buffer(4, csg_floats.clone()),
-                        WriteDescriptorSet::buffer(5, csg_vec2s.clone()),
-                        WriteDescriptorSet::buffer(6, csg_vec3s.clone()),
-                        WriteDescriptorSet::buffer(7, csg_vec4s.clone()),
-                        //WriteDescriptorSet::buffer(8, csg_mat2s.clone()),
-                        //WriteDescriptorSet::buffer(9, csg_mat3s.clone()),
-                        //WriteDescriptorSet::buffer(10, csg_mat4s.clone()),
-                        //WriteDescriptorSet::buffer(11, csg_mats.clone()),
-                        WriteDescriptorSet::buffer(12, csg_depends.clone()),
-                        WriteDescriptorSet::buffer(20, fragment_masks_buffer.clone()),
+                        WriteDescriptorSet::buffer(2, subbuffers.desc.clone()),
+                        WriteDescriptorSet::buffer(3, subbuffers.scene.clone()),
+                        WriteDescriptorSet::buffer(4, subbuffers.floats.clone()),
+                        WriteDescriptorSet::buffer(5, subbuffers.vec2s.clone()),
+                        WriteDescriptorSet::buffer(6, subbuffers.vec3s.clone()),
+                        WriteDescriptorSet::buffer(7, subbuffers.vec4s.clone()),
+                        //WriteDescriptorSet::buffer(8, subbuffers.mat2s.clone()),
+                        //WriteDescriptorSet::buffer(9, subbuffers.mat3s.clone()),
+                        //WriteDescriptorSet::buffer(10, subbuffers.mat4s.clone()),
+                        //WriteDescriptorSet::buffer(11, subbuffers.mats.clone()),
+                        WriteDescriptorSet::buffer(12, subbuffers.deps.clone()),
+                        WriteDescriptorSet::buffer(20, subbuffers.masks.clone()),
                     ],
                 )
                 .unwrap();
@@ -944,6 +869,7 @@ fn window_size_dependent_setup<Mms>(
     mesh_vs: &ShaderModule,
     mesh_fs: &ShaderModule,
     implicit_ms: &ShaderModule,
+    implicit_ts: &ShaderModule,
     implicit_fs: &ShaderModule,
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
@@ -1049,6 +975,7 @@ where
             },
         ]))
         .fragment_shader(implicit_fs.entry_point("main").unwrap(), specs)
+        .task_shader(implicit_ts.entry_point("main").unwrap(), ())
         .mesh_shader(implicit_ms.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
@@ -1072,20 +999,365 @@ where
     ([mesh_pipeline, implicit_pipeline], framebuffers)
 }
 
-fn object_size_dependent_setup(
+struct Subbuffers {
+    masks: Subbuffer<[[u8; 29]]>,
+    floats: Subbuffer<[f32]>,
+    vec2s: Subbuffer<[[f32; 2]]>,
+    vec3s: Subbuffer<[[f32; 3]]>,
+    vec4s: Subbuffer<[[f32; 4]]>,
+    mat2s: Subbuffer<[[[f32; 2]; 2]]>,
+    mat3s: Subbuffer<[[[f32; 3]; 3]]>,
+    mat4s: Subbuffer<[[[f32; 4]; 4]]>,
+    mats: Subbuffer<[[[f32; 4]; 4]]>,
+    scene: Subbuffer<[[u32; 4]]>,
+    deps: Subbuffer<[[u8; 2]]>,
+    desc: Subbuffer<[[u32; 10]]>,
+}
+
+impl PartialEq<InputTypes> for Inputs {
+    fn eq(&self, other: &InputTypes) -> bool {
+        match self {
+            &Inputs::Variable => true,
+            &Inputs::Float(_) => *other == InputTypes::Float,
+            &Inputs::Vec2(_) => *other == InputTypes::Vec2,
+            &Inputs::Vec3(_) => *other == InputTypes::Vec3,
+            &Inputs::Vec4(_) => *other == InputTypes::Vec4,
+            &Inputs::Mat2(_) => *other == InputTypes::Mat2,
+            &Inputs::Mat3(_) => *other == InputTypes::Mat3,
+            &Inputs::Mat4(_) => *other == InputTypes::Mat4,
+        }
+    }
+}
+
+fn gpu_buffer<T>(
+    input: Vec<T>,
     allocator: &StandardMemoryAllocator,
+    sub_allocator: &SubbufferAllocator,
+    command_allocator: &StandardCommandBufferAllocator,
+    transfer_queue: Arc<Queue>,
+) -> Subbuffer<[T]>
+where
+    T: bytemuck::Pod + Send + Sync
+{
+    let buffer = Buffer::new_slice(
+        allocator,
+        BufferAllocateInfo {
+            buffer_usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+            memory_usage: MemoryUsage::GpuOnly,
+            allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
+            ..Default::default()
+        },
+        (input.len()) as u64,
+    )
+    .unwrap();
+
+    let staging = sub_allocator.allocate_slice(input.len() as u64).unwrap();
+    staging.write().unwrap().copy_from_slice(&input[..]);
+
+    let mut builder = AutoCommandBufferBuilder::primary(
+        command_allocator,
+        transfer_queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+    builder.copy_buffer(CopyBufferInfo::buffers(
+        staging,
+        buffer.clone())
+    ).unwrap();
+    let commands = builder.build().unwrap();
+
+    commands.execute(transfer_queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+
+    buffer
+}
+
+fn object_size_dependent_setup(
+    allocator: Arc<StandardMemoryAllocator>,
     state: &GState,
-) -> Subbuffer<[[u8; 29]]> {
+    command_allocator: &StandardCommandBufferAllocator,
+    queue: Arc<Queue>,
+) -> Subbuffers {
+    let mut floats: Vec<f32> = vec![Default::default()];
+    let mut vec2s: Vec<[f32; 2]> = vec![Default::default()];
+    let mut vec3s: Vec<[f32; 3]> = vec![Default::default()];
+    let mut vec4s: Vec<[f32; 4]> = vec![Default::default()];
+    let mut mat2s: Vec<[[f32; 2]; 2]> = vec![Default::default()];
+    let mut mat3s: Vec<[[f32; 3]; 3]> = vec![Default::default()];
+    let mut mat4s: Vec<[[f32; 4]; 4]> = vec![Default::default()];
+    let mut mats: Vec<[[f32; 4]; 4]> = vec![Default::default()];
+    let mut scene: Vec<[u32; 4]> = vec![Default::default()];
+    let mut deps: Vec<[u8; 2]> = vec![Default::default()];
+    let mut desc: Vec<[u32; 10]> = vec![Default::default()];
+
+    'nextcsg: for csg in &state.csg {
+        let mut data: Vec<[u32; 4]> = vec![];
+
+        let to_push = [
+            scene.len() as u32,
+            floats.len() as u32,
+            vec2s.len() as u32,
+            vec3s.len() as u32,
+            vec4s.len() as u32,
+            mat2s.len() as u32,
+            mat3s.len() as u32,
+            mat4s.len() as u32,
+            mats.len() as u32,
+            deps.len() as u32,
+        ];
+
+        let parts = vec![
+            //CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
+            //CSGPart::opcode(InstructionSet::OPSubVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([0., 0.2, 0.].into())]),
+            CSGPart::opcode(
+                InstructionSet::OPSDFSphere,
+                vec![Inputs::Float(1.0), Inputs::Variable],
+            ),
+            //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
+            //CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
+            //CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
+            CSGPart::opcode(InstructionSet::OPStop, vec![Inputs::Variable]),
+        ];
+
+        let mut dependencies: Vec<[u8; 2]> = vec![];
+        for _ in 0..parts.len() {
+            dependencies.push([u8::MAX, u8::MAX]);
+        }
+
+        let mut runtime_floats: Vec<usize> = vec![];
+        let mut runtime_vec2s: Vec<usize> = vec![];
+        let mut runtime_vec3s: Vec<usize> = vec![usize::MAX];
+        let mut runtime_vec4s: Vec<usize> = vec![];
+        let mut runtime_mat2s: Vec<usize> = vec![];
+        let mut runtime_mat3s: Vec<usize> = vec![];
+        let mut runtime_mat4s: Vec<usize> = vec![];
+
+        for (index, part) in parts.iter().enumerate() {
+            let inputs = part.opcode.input();
+            for (expected, actual) in inputs.iter().zip(part.constants.iter()) {
+                if actual != expected {
+                    eprintln!(
+                        "csg {} is invalid ({:?} != {:?})",
+                        csg.name, actual, expected
+                    );
+                    continue 'nextcsg;
+                }
+                if actual == &Inputs::Variable {
+                    match expected {
+                        &InputTypes::Float => match runtime_floats.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on floats", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Vec2 => match runtime_vec2s.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on vec2s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Vec3 => match runtime_vec3s.pop() {
+                            Some(u) => {
+                                if u != usize::MAX {
+                                    if dependencies[u][0] != u8::MAX {
+                                        dependencies[u][1] = index as u8
+                                    } else {
+                                        dependencies[u][0] = index as u8
+                                    }
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on vec3s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Vec4 => match runtime_vec4s.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on vec4s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Mat2 => match runtime_mat2s.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on mat2s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Mat3 => match runtime_mat3s.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on mat3s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                        &InputTypes::Mat4 => match runtime_mat4s.pop() {
+                            Some(u) => {
+                                if dependencies[u][0] != u8::MAX {
+                                    dependencies[u][1] = index as u8
+                                } else {
+                                    dependencies[u][0] = index as u8
+                                }
+                            }
+                            None => {
+                                eprintln!("csg {} underflowed on mat4s", csg.name);
+                                continue 'nextcsg;
+                            }
+                        },
+                    }
+                } else {
+                    match actual {
+                        &Inputs::Float(f) => floats.push(f),
+                        &Inputs::Vec2(f) => vec2s.push(f.into()),
+                        &Inputs::Vec3(f) => vec3s.push(f.into()),
+                        &Inputs::Vec4(f) => vec4s.push(f.into()),
+                        &Inputs::Mat2(f) => mat2s.push(f.into()),
+                        &Inputs::Mat3(f) => mat3s.push(f.into()),
+                        &Inputs::Mat4(f) => mat4s.push(f.into()),
+                        &Inputs::Variable => unreachable!(),
+                    }
+                }
+            }
+            let outputs = part.opcode.output();
+            for output in outputs {
+                match output {
+                    InputTypes::Float => runtime_floats.push(index),
+                    InputTypes::Vec2 => runtime_vec2s.push(index),
+                    InputTypes::Vec3 => runtime_vec3s.push(index),
+                    InputTypes::Vec4 => runtime_vec4s.push(index),
+                    InputTypes::Mat2 => runtime_mat2s.push(index),
+                    InputTypes::Mat3 => runtime_mat3s.push(index),
+                    InputTypes::Mat4 => runtime_mat4s.push(index),
+                }
+            }
+        }
+
+        let mut lower = true;
+        let mut minor = 0;
+        let mut major = 0;
+
+        for part in parts {
+            if major == data.len() {
+                data.push([0; 4]);
+            }
+            data[major][minor] |= (part.code as u32) << (if lower { 0 } else { 16 });
+
+            lower = !lower;
+            if lower {
+                minor += 1;
+                if minor == 4 {
+                    minor = 0;
+                    major += 1;
+                    if major == 29 {
+                        panic!("CSGParts Too full!");
+                    }
+                }
+            }
+        }
+
+        desc.push(to_push);
+
+        scene.append(&mut data);
+
+        deps.append(&mut dependencies);
+
+        
+    }
+
+    println!("floats: {:?}", floats);
+    println!("vec2s: {:?}", vec2s);
+    println!("vec3s: {:?}", vec3s);
+    println!("vec4s: {:?}", vec4s);
+    println!("mat2s: {:?}", mat2s);
+    println!("mat3s: {:?}", mat3s);
+    println!("mat4s: {:?}", mat4s);
+    println!("mats: {:?}", mats);
+    println!("scene: {:?}", scene);
+    println!("deps: {:?}", deps);
+    println!("desc: {:?}", desc);
+
     let fragment_masks_buffer = Buffer::new_slice(
-        allocator.clone(),
+        &allocator,
         BufferAllocateInfo {
             buffer_usage: BufferUsage::STORAGE_BUFFER,
             memory_usage: MemoryUsage::GpuOnly,
             allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
             ..Default::default()
         },
-        (state.csg.len() * (4 * 4 * 4) * (3 * 3 * 3) * 29) as u64,
+        ((desc.len()-1) * (4 * 4 * 4) * (4 * 4 * 2) * 29) as u64,
     )
     .unwrap();
-    fragment_masks_buffer
+
+    let staging = SubbufferAllocator::new(
+        allocator.clone(),
+        SubbufferAllocatorCreateInfo {
+            buffer_usage: BufferUsage::TRANSFER_SRC,
+            memory_usage: MemoryUsage::Upload,
+            ..Default::default()
+        },
+    );
+
+    let csg_scene = gpu_buffer(scene, &allocator, &staging, command_allocator, queue.clone());
+    let csg_desc = gpu_buffer(desc, &allocator, &staging, command_allocator, queue.clone());
+    let csg_floats = gpu_buffer(floats, &allocator, &staging, command_allocator, queue.clone());
+    let csg_vec2s = gpu_buffer(vec2s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_vec3s = gpu_buffer(vec3s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_vec4s = gpu_buffer(vec4s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_mat2s = gpu_buffer(mat2s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_mat3s = gpu_buffer(mat3s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_mat4s = gpu_buffer(mat4s, &allocator, &staging, command_allocator, queue.clone());
+    let csg_mats = gpu_buffer(mats, &allocator, &staging, command_allocator, queue.clone());
+    let csg_deps = gpu_buffer(deps, &allocator, &staging, command_allocator, queue.clone());
+
+    Subbuffers {
+        masks: fragment_masks_buffer,
+        floats: csg_floats,
+        vec2s: csg_vec2s,
+        vec3s: csg_vec3s,
+        vec4s: csg_vec4s,
+        mat2s: csg_mat2s,
+        mat3s: csg_mat3s,
+        mat4s: csg_mat4s,
+        mats: csg_mats,
+        scene: csg_scene,
+        deps: csg_deps,
+        desc: csg_desc,
+    }
 }

@@ -1,11 +1,15 @@
 use std::{
     collections::HashMap,
+    default,
     io::{Cursor, Read},
     mem,
 };
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Deg, EuclideanSpace, Euler, Matrix3, Point3, SquareMatrix, Vector3};
+use cgmath::{
+    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix, Vector2, Vector3,
+    Vector4,
+};
 use obj::{LoadConfig, ObjData, ObjError};
 use serde::{Deserialize, Serialize};
 use vulkano::{
@@ -45,30 +49,63 @@ pub struct Mesh {
 #[derive(Debug)]
 pub struct CSG {
     pub name: String,
-    pub parts: Subbuffer<[CSGPart]>,
+    pub parts: Vec<CSGPart>,
     pub pos: Point3<f32>,
     pub rot: Euler<Deg<f32>>,
     pub scale: Vector3<f32>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Inputs {
+    #[default]
+    Variable,
+    Float(f32),
+    Vec2(Vector2<f32>),
+    Vec3(Vector3<f32>),
+    Vec4(Vector4<f32>),
+    Mat2(Matrix2<f32>),
+    Mat3(Matrix3<f32>),
+    Mat4(Matrix4<f32>),
+}
+
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod, Vertex)]
+#[derive(Clone, Debug)]
 pub struct CSGPart {
-    #[format(R16_SFLOAT)]
     pub code: u16,
+    pub opcode: InstructionSet,
+    pub constants: Vec<Inputs>,
+    pub material: Option<Matrix4<f32>>,
 }
 
 impl CSGPart {
-    pub fn opcode(opcode: InstructionSet, flags: u16) -> CSGPart {
+    pub fn opcode(opcode: InstructionSet, inputs: Vec<Inputs>) -> CSGPart {
         CSGPart {
-            code: (opcode as u16 & 1023) | flags << 10,
+            code: (opcode as u16 & 1023)
+                | inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        if n != &Inputs::Variable {
+                            1 << (15 - i)
+                        } else {
+                            0
+                        }
+                    })
+                    .fold(0, |a, i| a | i),
+            opcode,
+            constants: inputs,
+            material: None,
         }
     }
 
-    pub fn literal(literal: f16) -> CSGPart {
-        CSGPart {
-            code: literal.to_bits(),
-        }
+    pub fn opcode_with_material(
+        opcode: InstructionSet,
+        inputs: Vec<Inputs>,
+        material: Matrix4<f32>,
+    ) -> CSGPart {
+        let mut c = CSGPart::opcode(opcode, inputs);
+        c.material = Some(material);
+        c
     }
 }
 
@@ -326,7 +363,7 @@ pub fn load_csg(
                 .iter()
                 .map(|inpart| {
                     let ty = inpart.get("type").ok_or("no type!")?.as_str();
-                    let mut csgpart = CSGPart::literal(0u8.into());
+                    let mut csgpart = CSGPart::opcode(InstructionSet::OPNop, vec![]);
                     match ty {
                         "sphere" => {
                             let blend = get_f32(&inpart, "blend")?;
@@ -342,18 +379,8 @@ pub fn load_csg(
                 })
                 .collect::<Result<Vec<CSGPart>, String>>()?;
 
-            let parts_buffer = Buffer::from_iter(
-                memory_allocator,
-                BufferAllocateInfo {
-                    buffer_usage: BufferUsage::VERTEX_BUFFER,
-                    ..Default::default()
-                },
-                parts,
-            )
-            .unwrap();
-
             Ok(CSG {
-                parts: parts_buffer,
+                parts,
                 pos: Point3 {
                     x: 0.,
                     y: 0.,
