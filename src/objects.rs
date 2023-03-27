@@ -7,8 +7,8 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{
-    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix, Vector2, Vector3,
-    Vector4,
+    num_traits::float, Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix,
+    Vector2, Vector3, Vector4,
 };
 use obj::{LoadConfig, ObjData, ObjError};
 use serde::{Deserialize, Serialize};
@@ -55,17 +55,25 @@ pub struct CSG {
     pub scale: Vector3<f32>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+pub type Float = f64;
+pub type Vec2 = Vector2<Float>;
+pub type Vec3 = Vector3<Float>;
+pub type Vec4 = Vector4<Float>;
+pub type Mat2 = Matrix2<Float>;
+pub type Mat3 = Matrix3<Float>;
+pub type Mat4 = Matrix4<Float>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Inputs {
     #[default]
     Variable,
-    Float(f32),
-    Vec2(Vector2<f32>),
-    Vec3(Vector3<f32>),
-    Vec4(Vector4<f32>),
-    Mat2(Matrix2<f32>),
-    Mat3(Matrix3<f32>),
-    Mat4(Matrix4<f32>),
+    Float(Float),
+    Vec2(Vec2),
+    Vec3(Vec3),
+    Vec4(Vec4),
+    Mat2(Mat2),
+    Mat3(Mat3),
+    Mat4(Mat4),
 }
 
 #[repr(C)]
@@ -74,7 +82,7 @@ pub struct CSGPart {
     pub code: u16,
     pub opcode: InstructionSet,
     pub constants: Vec<Inputs>,
-    pub material: Option<Matrix4<f32>>,
+    pub material: Option<Mat4>,
 }
 
 impl CSGPart {
@@ -101,7 +109,7 @@ impl CSGPart {
     pub fn opcode_with_material(
         opcode: InstructionSet,
         inputs: Vec<Inputs>,
-        material: Matrix4<f32>,
+        material: Mat4,
     ) -> CSGPart {
         let mut c = CSGPart::opcode(opcode, inputs);
         c.material = Some(material);

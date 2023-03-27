@@ -10,6 +10,15 @@ fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
     ui.label(egui::RichText::new(text).size(size));
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct PreviousDebug {
+    pub bounding_boxes: bool,
+    pub disable_meshcull: bool,
+    pub disable_meshscale1: bool,
+    pub disable_meshscale2: bool,
+    pub disable_taskcull: bool,
+}
+
 #[derive(Debug)]
 pub struct GState {
     pub cursor_sensitivity: f32,
@@ -20,6 +29,8 @@ pub struct GState {
     pub csg: Vec<CSG>,
 
     pub fps: [f64; 128],
+
+    pub debug: PreviousDebug,
 }
 
 impl Default for GState {
@@ -33,6 +44,8 @@ impl Default for GState {
             csg: vec![],
 
             fps: [0.0; 128],
+
+            debug: Default::default(),
         }
     }
 }
@@ -87,6 +100,12 @@ pub fn gui_up(gui: &mut Gui, state: &mut GState) {
                         let line = Line::new(fps);
                         ui.heading("FPS");
                         Plot::new("fps").view_aspect(2.0).show(ui, |plot_ui| plot_ui.line(line));
+                        ui.heading("Debug");
+                        ui.toggle_value(&mut state.debug.bounding_boxes, "Render bounding boxes instead");
+                        ui.toggle_value(&mut state.debug.disable_meshcull, "Disable mesh shader culling");
+                        ui.toggle_value(&mut state.debug.disable_meshscale1, "Disable mesh shader scaling part 1");
+                        ui.toggle_value(&mut state.debug.disable_meshscale2, "Disable mesh shader scaling part 2");
+                        ui.toggle_value(&mut state.debug.disable_taskcull, "Disable task shader culling");
                     });
                 });
             });

@@ -8,12 +8,17 @@ uint DescriptionIndex;
 #include "include.glsl"
 #include "intervals.glsl"
 
+layout (constant_id = 0) const bool DISABLE_TRACE = false;
+layout (constant_id = 1) const bool DISABLE_SCALING_1 = false;
+layout (constant_id = 2) const bool DISABLE_SCALING_2 = false;
+
 layout(local_size_x=32,local_size_y=1,local_size_z=1)in;
 layout(triangles,max_vertices=256,max_primitives=192)out;
 
 layout(location=0)out VertexOutput
 {
     vec4 position;
+    vec3 globaloffset;
 }vertexOutput[];
 
 struct MeshMasks
@@ -23,11 +28,11 @@ struct MeshMasks
     vec3 bottomleft;            //12
     vec3 topright;              //12
     uint globalindex;           //4
-    //uint objectindex;           //4
-};                              //total = 992 bytes
+    vec3 globaloffset;          //12
+};                              //total = 1000 bytes
 taskPayloadSharedEXT MeshMasks meshmasks;
 
-layout(set=0,binding=20)restrict writeonly buffer fragmentMasks{
+layout(set=0,binding=20, std430)restrict writeonly buffer fragmentMasks{
     uint8_t masks[][masklen];
 }fragmentpassmasks;
 
@@ -40,6 +45,7 @@ void main()
     mask = meshmasks.masks[gl_WorkGroupID.x];
     vec3 bottomleft = meshmasks.bottomleft;
     vec3 topright = meshmasks.topright;
+    vec3 center = (topright + bottomleft) / 2.;
     
     vec4[8]positions={
         vec4(bottomleft,1.),
@@ -61,28 +67,30 @@ void main()
     int GlobalInvocationIndex = int((meshmasks.globalindex*32+localindex)*32+gl_LocalInvocationID.x);
     
     //adjust scale and position
-    for (int i = 0; i<8; i++)
-    {
-        positions[i] *= vec4(0.25,0.25,0.5,1.);
-        positions[i].x += (topright.x-bottomleft.x)*0.25 * (mod(localindex,4.)-1.5);
-        positions[i].y += (topright.y-bottomleft.y)*0.25 * (mod(floor(localindex/4.),4.)-1.5);
-        positions[i].z += ((topright.z-bottomleft.z)*0.5 * (floor(localindex/16.)-0.5) + (topright.z+bottomleft.z)*0.25);
+    if (!DISABLE_SCALING_1) {
+        for (int i = 0; i<8; i++)
+        {
+            positions[i] *= vec4(0.25,0.25,0.5,1.);
+            positions[i].x += (topright.x-bottomleft.x)*0.25 * (mod(localindex,4.)-1.5) + (topright.x+bottomleft.x)*0.375;
+            positions[i].y += (topright.y-bottomleft.y)*0.25 * (mod(floor(localindex/4.),4.)-1.5) + (topright.y+bottomleft.y)*0.375;
+            positions[i].z += ((topright.z-bottomleft.z)*0.5 * (floor(localindex/16.)-0.5) + (topright.z+bottomleft.z)*0.25);
+        }
     }
 
     vec4 localtopright=positions[0];
     vec4 localbottomleft=positions[7];
 
-    for (int i = 0; i<8; i++)
-    {
-        positions[i] *= vec4(0.25,0.25,0.5,1.);
-        positions[i].x += (localtopright.x-localbottomleft.x)*(0.25) * (mod(gl_LocalInvocationID.x,4.)-1.5) + (localtopright.x+localbottomleft.x)*0.375;
-        positions[i].y += (localtopright.y-localbottomleft.y)*(0.25) * (mod(floor(gl_LocalInvocationID.x/4.),4.)-1.5) + (localtopright.y+localbottomleft.y)*0.375;
-        positions[i].z += (localtopright.z-localbottomleft.z)*(0.5) * (floor(gl_LocalInvocationID.x/16.)-0.5) + (localtopright.z+localbottomleft.z)*0.25;
+    if (!DISABLE_SCALING_2) {
+        for (int i = 0; i<8; i++)
+        {
+            positions[i] *= vec4(0.25,0.25,0.5,1.);
+            positions[i].x += (localtopright.x-localbottomleft.x)*(0.25) * (mod(gl_LocalInvocationID.x,4.)-1.5) + (localtopright.x+localbottomleft.x)*0.375;
+            positions[i].y += (localtopright.y-localbottomleft.y)*(0.25) * (mod(floor(gl_LocalInvocationID.x/4.),4.)-1.5) + (localtopright.y+localbottomleft.y)*0.375;
+            positions[i].z += (localtopright.z-localbottomleft.z)*(0.5) * (floor(gl_LocalInvocationID.x/16.)-0.5) + (localtopright.z+localbottomleft.z)*0.25;
+        }
     }
 
     bvec3 signingvec=greaterThan((inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz,(positions[0].xyz+positions[7].xyz)/2);
-
-    float[2] check = scene(vec3[2](vec3(positions[0].xyz),vec3(positions[7].xyz)), true);
 
     gl_MeshPrimitivesEXT[pindex+0].gl_PrimitiveID=GlobalInvocationIndex;
     gl_MeshPrimitivesEXT[pindex+1].gl_PrimitiveID=GlobalInvocationIndex;
@@ -91,8 +99,15 @@ void main()
     gl_MeshPrimitivesEXT[pindex+4].gl_PrimitiveID=GlobalInvocationIndex;
     gl_MeshPrimitivesEXT[pindex+5].gl_PrimitiveID=GlobalInvocationIndex;
 
-    if ((check[0] < 0) && (check[1] > 0) && (gl_WorkGroupID.x < 32))
-    //if (true)
+    bool triangle_fine;
+    if (!DISABLE_TRACE) {
+        float[2] check = scene(vec3[2](vec3(positions[0].xyz),vec3(positions[7].xyz)), true);
+        triangle_fine = (check[0] <= 0) && (check[1] >= 0);
+    } else {
+        triangle_fine = true;
+    }
+
+    if (triangle_fine)
     {
         fragmentpassmasks.masks[GlobalInvocationIndex]=mask;
         
@@ -112,6 +127,14 @@ void main()
         vertexOutput[vindex+5].position=(positions[5]);
         vertexOutput[vindex+6].position=(positions[6]);
         vertexOutput[vindex+7].position=(positions[7]);
+        vertexOutput[vindex+0].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+1].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+2].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+3].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+4].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+5].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+6].globaloffset=(meshmasks.globaloffset);
+        vertexOutput[vindex+7].globaloffset=(meshmasks.globaloffset);
         /*vertexOutput[vindex+0].position=vec4(bottomleft,1.);
         vertexOutput[vindex+1].position=vec4(bottomleft.x,bottomleft.y,topright.z,1.);
         vertexOutput[vindex+2].position=vec4(bottomleft.x,topright.y,bottomleft.z,1.);

@@ -1,7 +1,8 @@
 #![feature(variant_count)]
+use bytemuck::{Zeroable, Pod};
 use cgmath::{
     Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector2,
-    Vector3, Vector4,
+    Vector3, Vector4, Zero,
 };
 use instruction_set::InputTypes;
 use vulkano::command_buffer::{CopyBufferInfo, PrimaryCommandBufferAbstract};
@@ -66,6 +67,7 @@ use winit::{
 mod gui;
 use crate::gui::*;
 mod objects;
+use crate::interpreter::Interpreter;
 use crate::objects::*;
 mod mcsg_deserialise;
 
@@ -74,6 +76,8 @@ mod instruction_set {
 }
 
 use crate::instruction_set::InstructionSet;
+
+mod interpreter;
 
 pub type MemoryAllocator = StandardMemoryAllocator;
 
@@ -300,6 +304,21 @@ fn main() {
         }
     }
 
+    mod cs {
+        vulkano_shaders::shader!{
+            ty: "compute",
+            path: "src/fuzz.comp.glsl",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+
+                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
+            },
+            vulkan_version: "1.2",
+            spirv_version: "1.5",
+        }
+    }
+    
+
     let loaders: Vec<
         fn(
             ::std::sync::Arc<::vulkano::device::Device>,
@@ -343,6 +362,13 @@ fn main() {
                 ::std::sync::Arc<::vulkano::shader::ShaderModule>,
                 ::vulkano::shader::ShaderCreationError,
             >),
+        ((cs::load)
+            as fn(
+                ::std::sync::Arc<::vulkano::device::Device>,
+            ) -> Result<
+                ::std::sync::Arc<::vulkano::shader::ShaderModule>,
+                ::vulkano::shader::ShaderCreationError,
+            >),
     ];
 
     let pariter = loaders
@@ -357,7 +383,20 @@ fn main() {
     let implicit_ts = pariter[3].clone();
     let implicit_fs = pariter[4].clone();
 
+    let compute_shader = pariter[5].clone();
+
     drop(pariter);
+
+    use vulkano::pipeline::ComputePipeline;
+
+    let compute_pipeline = ComputePipeline::new(
+    device.clone(),
+    compute_shader.entry_point("main").unwrap(),
+    &(),
+    None,
+    |_| {},
+    )   
+    .expect("failed to create compute pipeline");
 
     let memory_allocator = Arc::new(MemoryAllocator::new_default(device.clone()));
 
@@ -402,6 +441,8 @@ fn main() {
         depth_range: 0.0..1.0,
     };
 
+    let mut gstate = GState::default();
+
     //let [RES_X, RES_Y] = images[0].dimensions().width_height();
     let ([mut mesh_pipeline, mut implicit_pipeline], mut framebuffers) =
         window_size_dependent_setup(
@@ -414,7 +455,12 @@ fn main() {
             &images,
             render_pass.clone(),
             &mut viewport,
-            implicit_fs::SpecializationConstants {},
+            
+            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32},
+            implicit_ms::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_meshcull as u32,
+                DISABLE_SCALING_1:gstate.debug.disable_meshscale1 as u32,
+                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32},
+            implicit_ts::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_taskcull as u32},
         );
 
     let command_buffer_allocator =
@@ -441,8 +487,6 @@ fn main() {
         queue.clone(),
         Subpass::from(render_pass.clone(), 1).unwrap(),
     );
-
-    let mut gstate = GState::default();
 
     let mut campos = Point3 {
         x: 0f32,
@@ -491,7 +535,9 @@ fn main() {
         .lights
         .push(Light::new([-4., 6., -8.], [8., 4., 1.], 0.05));
 
-    let subbuffers = object_size_dependent_setup(memory_allocator.clone(), &gstate, &command_buffer_allocator, transfer_queue.clone());
+    let subbuffers = object_size_dependent_setup(memory_allocator.clone(), &gstate.csg, &command_buffer_allocator, transfer_queue.clone(), None, false);
+
+    let mut prevdub = PreviousDebug::default();
 
     let mut render_start = Instant::now();
 
@@ -571,6 +617,10 @@ fn main() {
 
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
+                if prevdub != gstate.debug {
+                    recreate_swapchain = true;
+                }
+
                 if recreate_swapchain {
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
@@ -583,7 +633,7 @@ fn main() {
                         };
 
                     swapchain = new_swapchain;
-                    let [RES_X, RES_Y] = images[0].dimensions().width_height();
+                    //let [RES_X, RES_Y] = images[0].dimensions().width_height();
                     ([mesh_pipeline, implicit_pipeline], framebuffers) =
                         window_size_dependent_setup(
                             &memory_allocator,
@@ -595,9 +645,14 @@ fn main() {
                             &new_images,
                             render_pass.clone(),
                             &mut viewport,
-                            implicit_fs::SpecializationConstants {},
+                            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32},
+                            implicit_ms::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_meshcull as u32,
+                                DISABLE_SCALING_1:gstate.debug.disable_meshscale1 as u32,
+                                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32},
+                            implicit_ts::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_taskcull as u32},
                         );
                     recreate_swapchain = false;
+                    prevdub = gstate.debug;
                 }
 
                 let (mut push_constants, cam_set) = {
@@ -695,7 +750,7 @@ fn main() {
                     *sub.write().unwrap() = uniform_data;
                     sub
                 };
-
+                
                 let mesh_layout = mesh_pipeline.layout().set_layouts().get(0).unwrap();
                 let mesh_set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
@@ -718,7 +773,7 @@ fn main() {
                         WriteDescriptorSet::buffer(3, subbuffers.scene.clone()),
                         WriteDescriptorSet::buffer(4, subbuffers.floats.clone()),
                         WriteDescriptorSet::buffer(5, subbuffers.vec2s.clone()),
-                        WriteDescriptorSet::buffer(6, subbuffers.vec3s.clone()),
+                        //WriteDescriptorSet::buffer(6, subbuffers.vec3s.clone()),
                         WriteDescriptorSet::buffer(7, subbuffers.vec4s.clone()),
                         //WriteDescriptorSet::buffer(8, subbuffers.mat2s.clone()),
                         //WriteDescriptorSet::buffer(9, subbuffers.mat3s.clone()),
@@ -729,6 +784,100 @@ fn main() {
                     ],
                 )
                 .unwrap();
+
+                const COMPUTE_FUZZING: bool = false;
+                
+                if COMPUTE_FUZZING {
+
+                    let mut fake_csg = vec![];
+                    for i in 0..(32)
+                    {
+                        fake_csg.push(
+                            CSG{ name: format!("fuzz_{}",i), parts: vec![
+                                CSGPart::opcode(InstructionSet::OPMulVec3Float, vec![Inputs::Variable, Inputs::Float(0.9)]),
+                                CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
+                                CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.7, (i as f64), -0.7].into())]),
+                                CSGPart::opcode(InstructionSet::OPSDFSphere,vec![Inputs::Float(0.5), Inputs::Variable]),
+                                //CSGPart::opcode(InstructionSet::OPNop,vec![]),
+                                //CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
+                                //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.2, -0.2, -0.2].into())]),
+                                //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.0, -0.0, -0.0].into())]),
+                                CSGPart::opcode(InstructionSet::OPSDFSphere,vec![Inputs::Float(1.2), Inputs::Variable]),
+                                //CSGPart::opcode(InstructionSet::OPSDFBox, vec![Inputs::Variable, Inputs::Vec3([0.7, 0.7, 0.7].into())]),
+                                CSGPart::opcode(InstructionSet::OPMinFloat, vec![Inputs::Variable,Inputs::Variable]),
+                                CSGPart::opcode(InstructionSet::OPDivFloatFloat, vec![Inputs::Variable, Inputs::Float(0.9)]),
+                                CSGPart::opcode(InstructionSet::OPStop, vec![Inputs::Variable]),
+                            ], pos: Point3::origin(), rot: Euler { x: Deg(0.), y: Deg(0.), z: Deg(0.) }, scale: Vector3 { x: 1., y: 1., z: 1. } }
+                        )
+                    }
+                
+                    let compute_subbuffers = object_size_dependent_setup(memory_allocator.clone(), &fake_csg, &command_buffer_allocator, transfer_queue.clone(), Some(
+                        [1.,1.,1.,1.,5.,1.]
+                    ),true);
+
+                    let compute_result_buffer:Subbuffer<[cs::ty::Results]> = uniform_buffer.allocate_slice((fake_csg.len()+1) as u64).unwrap();
+
+
+                    let compute_layout = compute_pipeline.layout().set_layouts().get(0).unwrap();
+                    let compute_set = PersistentDescriptorSet::new(
+                        &descriptor_set_allocator,
+                        compute_layout.clone(),
+                        [
+                            //WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer.clone()),
+                            //WriteDescriptorSet::buffer(1, cam_set.clone()),
+                            WriteDescriptorSet::buffer(2, compute_subbuffers.desc.clone()),
+                            WriteDescriptorSet::buffer(3, compute_subbuffers.scene.clone()),
+                            WriteDescriptorSet::buffer(4, compute_subbuffers.floats.clone()),
+                            WriteDescriptorSet::buffer(5, compute_subbuffers.vec2s.clone()),
+                            //WriteDescriptorSet::buffer(6, compute_subbuffers.vec3s.clone()),
+                            WriteDescriptorSet::buffer(7, compute_subbuffers.vec4s.clone()),
+                            //WriteDescriptorSet::buffer(8, compute_subbuffers.mat2s.clone()),
+                            //WriteDescriptorSet::buffer(9, compute_subbuffers.mat3s.clone()),
+                            //WriteDescriptorSet::buffer(10, compute_subbuffers.mat4s.clone()),
+                            //WriteDescriptorSet::buffer(11, compute_subbuffers.mats.clone()),
+                            WriteDescriptorSet::buffer(12, compute_subbuffers.deps.clone()),
+                            //WriteDescriptorSet::buffer(20, compute_subbuffers.masks.clone()),
+                            WriteDescriptorSet::buffer(30, compute_result_buffer.clone()),],
+                    )
+                    .unwrap();
+
+                    let mut builder = AutoCommandBufferBuilder::primary(
+                        &command_buffer_allocator,
+                        queue.queue_family_index(),
+                        CommandBufferUsage::OneTimeSubmit,
+                    )
+                    .unwrap();
+
+                    builder
+                        .bind_pipeline_compute(compute_pipeline.clone())
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Compute,
+                            compute_pipeline.layout().clone(),
+                            0, // 0 is the index of our set
+                            compute_set,
+                        )
+                        .dispatch([1, 1, 1])
+                        .unwrap();
+                    
+                    let command_buffer = builder.build().unwrap();
+
+                    let future = sync::now(device.clone())
+                        .then_execute(queue.clone(), command_buffer)
+                        .unwrap()
+                        .then_signal_fence_and_flush()
+                        .unwrap();
+
+                    future.wait(None).unwrap();
+
+                    let content = compute_result_buffer.read().unwrap();
+                    for (val,csg) in content.iter().zip(fake_csg.iter()) {
+                        println!("{:?}",val);
+                        let expected = Interpreter::new(csg).scene(Vector3::new(1.,1.,1.)) as f32;
+                        if expected != val.f[0] {
+                            println!("ERROR: expected {}, got {}", expected, val.f[0]);
+                        }
+                    }
+                }
 
                 let (image_index, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None) {
@@ -864,7 +1013,7 @@ fn main() {
 }
 
 /// This method is called once during initialization, then again whenever the window is resized
-fn window_size_dependent_setup<Mms>(
+fn window_size_dependent_setup<Fs,Ms,Ts>(
     allocator: &StandardMemoryAllocator,
     mesh_vs: &ShaderModule,
     mesh_fs: &ShaderModule,
@@ -874,10 +1023,14 @@ fn window_size_dependent_setup<Mms>(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-    specs: Mms,
+    implicit_fs_specs: Fs,
+    implicit_ms_specs: Ms,
+    implicit_ts_specs: Ts,
 ) -> ([Arc<GraphicsPipeline>; 2], Vec<Arc<Framebuffer>>)
 where
-    Mms: SpecializationConstants + Clone,
+    Fs: SpecializationConstants + Clone,
+    Ms: SpecializationConstants + Clone,
+    Ts: SpecializationConstants + Clone,
 {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
@@ -887,7 +1040,7 @@ where
             allocator,
             dimensions,
             SampleCount::Sample4,
-            Format::D16_UNORM,
+            Format::D16_UNORM, // D24_UNORM_S8_UINT
         )
         .unwrap(),
     )
@@ -944,7 +1097,7 @@ where
                 depth_range: 0.0..1.0,
             },
         ]))
-        .fragment_shader(mesh_fs.entry_point("main").unwrap(), specs.clone())
+        .fragment_shader(mesh_fs.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             front_face: Fixed(Clockwise),
@@ -974,9 +1127,9 @@ where
                 depth_range: 0.0..1.0,
             },
         ]))
-        .fragment_shader(implicit_fs.entry_point("main").unwrap(), specs)
-        .task_shader(implicit_ts.entry_point("main").unwrap(), ())
-        .mesh_shader(implicit_ms.entry_point("main").unwrap(), ())
+        .fragment_shader(implicit_fs.entry_point("main").unwrap(), implicit_fs_specs.clone())
+        .task_shader(implicit_ts.entry_point("main").unwrap(), implicit_ts_specs.clone())
+        .mesh_shader(implicit_ms.entry_point("main").unwrap(), implicit_ms_specs.clone())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             //front_face: Fixed(Clockwise),
@@ -999,11 +1152,19 @@ where
     ([mesh_pipeline, implicit_pipeline], framebuffers)
 }
 
+
+#[repr(C)]
+#[derive(Clone,Copy,Pod,Zeroable, Default, Debug)]
+struct Description {
+    pointers: [u32; 9],
+    bounds: [f32;6],
+}
+
 struct Subbuffers {
     masks: Subbuffer<[[u8; 29]]>,
     floats: Subbuffer<[f32]>,
     vec2s: Subbuffer<[[f32; 2]]>,
-    vec3s: Subbuffer<[[f32; 3]]>,
+    //vec3s: Subbuffer<[[f32; 4]]>,
     vec4s: Subbuffer<[[f32; 4]]>,
     mat2s: Subbuffer<[[[f32; 2]; 2]]>,
     mat3s: Subbuffer<[[[f32; 3]; 3]]>,
@@ -1011,7 +1172,7 @@ struct Subbuffers {
     mats: Subbuffer<[[[f32; 4]; 4]]>,
     scene: Subbuffer<[[u32; 4]]>,
     deps: Subbuffer<[[u8; 2]]>,
-    desc: Subbuffer<[[u32; 10]]>,
+    desc: Subbuffer<[Description]>,
 }
 
 impl PartialEq<InputTypes> for Inputs {
@@ -1076,15 +1237,29 @@ where
     buffer
 }
 
+fn f64tof32<const A:usize>(input: [[f64;A];A]) -> [[f32;A];A]
+{
+    let mut out = [[0_f32;A];A];
+    for x in 0..input.len()
+    {
+    for y in 0..input.len()
+    {
+        out[x][y] = input[x][y] as f32;
+    }
+}
+    out
+}
+
 fn object_size_dependent_setup(
     allocator: Arc<StandardMemoryAllocator>,
-    state: &GState,
+    state: &Vec<CSG>,
     command_allocator: &StandardCommandBufferAllocator,
     queue: Arc<Queue>,
+    set_bound: Option<[f32;6]>,
+    actual: bool,
 ) -> Subbuffers {
     let mut floats: Vec<f32> = vec![Default::default()];
     let mut vec2s: Vec<[f32; 2]> = vec![Default::default()];
-    let mut vec3s: Vec<[f32; 3]> = vec![Default::default()];
     let mut vec4s: Vec<[f32; 4]> = vec![Default::default()];
     let mut mat2s: Vec<[[f32; 2]; 2]> = vec![Default::default()];
     let mut mat3s: Vec<[[f32; 3]; 3]> = vec![Default::default()];
@@ -1092,16 +1267,15 @@ fn object_size_dependent_setup(
     let mut mats: Vec<[[f32; 4]; 4]> = vec![Default::default()];
     let mut scene: Vec<[u32; 4]> = vec![Default::default()];
     let mut deps: Vec<[u8; 2]> = vec![Default::default()];
-    let mut desc: Vec<[u32; 10]> = vec![Default::default()];
+    let mut desc: Vec<Description> = vec![Default::default()];
 
-    'nextcsg: for csg in &state.csg {
+    'nextcsg: for csg in state {
         let mut data: Vec<[u32; 4]> = vec![];
 
         let to_push = [
             scene.len() as u32,
             floats.len() as u32,
             vec2s.len() as u32,
-            vec3s.len() as u32,
             vec4s.len() as u32,
             mat2s.len() as u32,
             mat3s.len() as u32,
@@ -1110,18 +1284,23 @@ fn object_size_dependent_setup(
             deps.len() as u32,
         ];
 
-        let parts = vec![
+        let example = vec![
+            CSGPart::opcode(InstructionSet::OPMulVec3Float, vec![Inputs::Variable, Inputs::Float(0.9)]),
+            CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
+            CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.7, -1.2, -0.7].into())]),
+            CSGPart::opcode(InstructionSet::OPSDFSphere,vec![Inputs::Float(0.5), Inputs::Variable]),
+            //CSGPart::opcode(InstructionSet::OPNop,vec![]),
             //CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
-            //CSGPart::opcode(InstructionSet::OPSubVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([0., 0.2, 0.].into())]),
-            CSGPart::opcode(
-                InstructionSet::OPSDFSphere,
-                vec![Inputs::Float(1.0), Inputs::Variable],
-            ),
-            //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, 0b010000),
-            //CSGPart::opcode(InstructionSet::OPSDFSphere, 0b100000),
-            //CSGPart::opcode(InstructionSet::OPSmoothMinFloat, 0b000000),
+            //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.2, -0.2, -0.2].into())]),
+            //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.0, -0.0, -0.0].into())]),
+            //CSGPart::opcode(InstructionSet::OPSDFSphere,vec![Inputs::Float(1.2), Inputs::Variable]),
+            CSGPart::opcode(InstructionSet::OPSDFTorus, vec![Inputs::Vec2([0.7, 0.4].into()), Inputs::Variable]),
+            CSGPart::opcode(InstructionSet::OPMinFloat, vec![Inputs::Variable,Inputs::Variable]),
+            CSGPart::opcode(InstructionSet::OPDivFloatFloat, vec![Inputs::Variable, Inputs::Float(0.9)]),
             CSGPart::opcode(InstructionSet::OPStop, vec![Inputs::Variable]),
         ];
+
+        let parts = if actual {&csg.parts} else {&example};
 
         let mut dependencies: Vec<[u8; 2]> = vec![];
         for _ in 0..parts.len() {
@@ -1244,13 +1423,13 @@ fn object_size_dependent_setup(
                     }
                 } else {
                     match actual {
-                        &Inputs::Float(f) => floats.push(f),
-                        &Inputs::Vec2(f) => vec2s.push(f.into()),
-                        &Inputs::Vec3(f) => vec3s.push(f.into()),
-                        &Inputs::Vec4(f) => vec4s.push(f.into()),
-                        &Inputs::Mat2(f) => mat2s.push(f.into()),
-                        &Inputs::Mat3(f) => mat3s.push(f.into()),
-                        &Inputs::Mat4(f) => mat4s.push(f.into()),
+                        &Inputs::Float(f) => floats.push(f as f32),
+                        &Inputs::Vec2(f) => vec2s.push(f.map(|x| x as f32).into()),
+                        &Inputs::Vec3(f) => vec4s.push(f.map(|x| x as f32).extend(1.).into()),
+                        &Inputs::Vec4(f) => vec4s.push(f.map(|x| x as f32).into()),
+                        &Inputs::Mat2(f) => mat2s.push(f64tof32(f.into())),
+                        &Inputs::Mat3(f) => mat3s.push(f64tof32(f.into())),
+                        &Inputs::Mat4(f) => mat4s.push(f64tof32(f.into())),
                         &Inputs::Variable => unreachable!(),
                     }
                 }
@@ -1273,7 +1452,7 @@ fn object_size_dependent_setup(
         let mut minor = 0;
         let mut major = 0;
 
-        for part in parts {
+        for part in parts.iter() {
             if major == data.len() {
                 data.push([0; 4]);
             }
@@ -1292,7 +1471,23 @@ fn object_size_dependent_setup(
             }
         }
 
-        desc.push(to_push);
+        let temp_csg = &CSG { name: "test".to_string(), parts: parts.to_vec(), pos: Point3::origin(), rot: Euler::new(Deg(0.), Deg(0.), Deg(0.)), scale: Vector3 { x: 1., y: 1., z: 1. } };
+
+        let mut interpreter = interpreter::Interpreter::new( temp_csg);
+        const CLIPCHECK:Float =65536.;
+
+        let bounds = set_bound.unwrap_or([
+            ((CLIPCHECK-interpreter.scene(Vector3::new(CLIPCHECK,0.,0.)))*1.00001) as f32,
+            ((CLIPCHECK-interpreter.scene(Vector3::new(0.,CLIPCHECK,0.)))*1.00001)  as f32,
+            ((CLIPCHECK-interpreter.scene(Vector3::new(0.,0.,CLIPCHECK)))*1.00001)  as f32,
+            ((-CLIPCHECK+interpreter.scene(Vector3::new(-CLIPCHECK,0.,0.)))*1.00001)  as f32,
+            ((-CLIPCHECK+interpreter.scene(Vector3::new(0.,-CLIPCHECK,0.)))*1.00001)  as f32,
+            ((-CLIPCHECK+interpreter.scene(Vector3::new(0.,0.,-CLIPCHECK)))*1.00001)  as f32,
+        ]);
+
+        //println!("bounds: {:?}",bounds);
+
+        desc.push(Description {pointers:to_push,bounds});
 
         scene.append(&mut data);
 
@@ -1303,8 +1498,7 @@ fn object_size_dependent_setup(
 
     println!("floats: {:?}", floats);
     println!("vec2s: {:?}", vec2s);
-    println!("vec3s: {:?}", vec3s);
-    println!("vec4s: {:?}", vec4s);
+    println!("vec3/4s: {:?}", vec4s);
     println!("mat2s: {:?}", mat2s);
     println!("mat3s: {:?}", mat3s);
     println!("mat4s: {:?}", mat4s);
@@ -1338,7 +1532,7 @@ fn object_size_dependent_setup(
     let csg_desc = gpu_buffer(desc, &allocator, &staging, command_allocator, queue.clone());
     let csg_floats = gpu_buffer(floats, &allocator, &staging, command_allocator, queue.clone());
     let csg_vec2s = gpu_buffer(vec2s, &allocator, &staging, command_allocator, queue.clone());
-    let csg_vec3s = gpu_buffer(vec3s, &allocator, &staging, command_allocator, queue.clone());
+    //let csg_vec3s = gpu_buffer(vec3s, &allocator, &staging, command_allocator, queue.clone());
     let csg_vec4s = gpu_buffer(vec4s, &allocator, &staging, command_allocator, queue.clone());
     let csg_mat2s = gpu_buffer(mat2s, &allocator, &staging, command_allocator, queue.clone());
     let csg_mat3s = gpu_buffer(mat3s, &allocator, &staging, command_allocator, queue.clone());
@@ -1350,7 +1544,7 @@ fn object_size_dependent_setup(
         masks: fragment_masks_buffer,
         floats: csg_floats,
         vec2s: csg_vec2s,
-        vec3s: csg_vec3s,
+        //vec3s: csg_vec3s,
         vec4s: csg_vec4s,
         mat2s: csg_mat2s,
         mat3s: csg_mat3s,

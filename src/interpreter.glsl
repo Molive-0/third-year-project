@@ -6,7 +6,7 @@
 
 #include "instructionset.glsl"
 
-layout(set=0,binding=2)uniform SceneDescription{
+layout(set=0,binding=2, std430)uniform SceneDescription{
     u32vec4 d[13];//stored packed for space efficiency, 8 per index
 }scene_description;
 

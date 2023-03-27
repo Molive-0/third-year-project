@@ -40,6 +40,8 @@ utf-8 = "*"
 
 rayon = "*"
 
+rand = "0.8.5"
+
 # using latest gits
 [patch.crates-io]
 vulkano = { path = "../vulkano/vulkano" }

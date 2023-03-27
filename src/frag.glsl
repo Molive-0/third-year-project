@@ -7,9 +7,12 @@
 
 #ifdef implicit
 
+layout (constant_id = 0) const bool DISABLE_TRACE = false;
+
 layout(location=0)in VertexInput
 {
     vec4 position;
+    vec3 globaloffset;
 }vertexInput;
 
 #else
@@ -53,9 +56,10 @@ const uint MAX_STEPS=50;
 #define FARPLANE length(vec3(10))
 #define gl_GlobalInvocationID uvec3(1)
 #endif
+#define interval_frags
 #include "intervals.glsl"
 
-layout(set=0,binding=20)restrict readonly buffer fragmentMasks{
+layout(set=0,binding=20, std430)restrict readonly buffer fragmentMasks{
     uint8_t masks[][masklen];
 }fragmentpassmasks;
 
@@ -71,6 +75,9 @@ vec3 getNormal(vec3 p,float dens){
 vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
     vec2 td=vec2(NEARPLANE,1.);
     p=ori;
+    td.y=sceneoverride(p,false).x;
+    td.x+=(td.y)*.9;
+    p=ori+dir*td.x;
     for(int i=0;i<MAX_STEPS&&td.y>EPSILON&&td.x<FARPLANE;i++){
         td.y=sceneoverride(p,false).x;
         td.x+=(td.y)*.9;
@@ -106,12 +113,14 @@ void main(){
     vec3 raypos=vertexInput.position.xyz;
     vec3 p;
     vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);
-    //raypos-=vec3(5);
+    raypos+=vertexInput.globaloffset;
     
-    /*f_color=vec4(raydir,1.);
-    return;*/
-    /*f_color=vertexInput.position;
-    return;*/
+    //f_color=vec4(raydir,1.);
+    
+    if (DISABLE_TRACE) {
+        f_color=vertexInput.position;
+        return;
+    }
 
     #ifdef debug
     f_color=vec4(sceneoverride(raypos,false),1);
@@ -123,9 +132,9 @@ void main(){
     f_color=vec4(td,0,1);
     return;
     #endif*/
-    vec3 n=getNormal(p,td.y);
     if(td.y<EPSILON)
     {
+        vec3 n=getNormal(p,td.y);
         //f_color=vec4(1.);
         f_color=vec4(shading(n),1.);
         

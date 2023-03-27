@@ -216,4 +216,6 @@ const uint OPCubeVec3=__LINE__-1;                           //V3    //V3
 const uint OPSquareVec4=__LINE__-1;                         //V4    //V4
 const uint OPCubeVec4=__LINE__-1;                           //V4    //V4
 const uint OPSDFSphere=__LINE__-1;                          //F V3  //F
+const uint OPSDFBox=__LINE__-1;                             //V3 V3 //F
+const uint OPSDFTorus=__LINE__-1;                           //V2 V3 //F
 const uint OPInvalid=__LINE__-1;                            //      //

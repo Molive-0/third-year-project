@@ -12,48 +12,45 @@ struct Description{
     uint scene;
     uint floats;
     uint vec2s;
-    uint vec3s;
     uint vec4s;
     uint mat2s;
     uint mat3s;
     uint mat4s;
     uint mats;
     uint dependencies;
+    float[6] bounds;
 };
 Description desc;
 
-layout(set=0,binding=2)restrict readonly buffer SceneDescription{
+layout(set=0,binding=2, std430)restrict readonly buffer SceneDescription{
     Description desc[];
 }scene_description;
 
-layout(set=0,binding=3)restrict readonly buffer SceneBuf{
+layout(set=0,binding=3, std430)restrict readonly buffer SceneBuf{
     u32vec4 opcodes[];
 }scenes;
-layout(set=0,binding=4)restrict readonly buffer FloatConst{
+layout(set=0,binding=4, std430)restrict readonly buffer FloatConst{
     float floats[];
 }fconst;
-layout(set=0,binding=5)restrict readonly buffer Vec2Const{
+layout(set=0,binding=5, std430)restrict readonly buffer Vec2Const{
     vec2 vec2s[];
 }v2const;
-layout(set=0,binding=6)restrict readonly buffer Vec3Const{
-    vec3 vec3s[];
-}v3const;
-layout(set=0,binding=7)restrict readonly buffer Vec4Const{
+layout(set=0,binding=7, std430)restrict readonly buffer Vec4Const{
     vec4 vec4s[];
 }v4const;
-layout(set=0,binding=8)restrict readonly buffer Mat2Const{
+layout(set=0,binding=8, std430)restrict readonly buffer Mat2Const{
     mat2 mat2s[];
 }m2const;
-layout(set=0,binding=9)restrict readonly buffer Mat3Const{
+layout(set=0,binding=9, std430)restrict readonly buffer Mat3Const{
     mat3 mat3s[];
 }m3const;
-layout(set=0,binding=10)restrict readonly buffer Mat4Const{
+layout(set=0,binding=10, std430)restrict readonly buffer Mat4Const{
     mat4 mat4s[];
 }m4const;
-layout(set=0,binding=11)restrict readonly buffer MatConst{
+layout(set=0,binding=11, std430)restrict readonly buffer MatConst{
     mat4 mats[];
 }matconst;
-layout(set=0,binding=12)restrict readonly buffer DepInfo{
+layout(set=0,binding=12, std430)restrict readonly buffer DepInfo{
     uint8_t dependencies[][2];
 }depinfo;
 
@@ -85,12 +82,15 @@ uint mat4_stack_head=0;
 
 uint float_const_head=0;
 uint vec2_const_head=0;
-uint vec3_const_head=0;
 uint vec4_const_head=0;
 uint mat2_const_head=0;
 uint mat3_const_head=0;
 uint mat4_const_head=0;
 uint mat_const_head=0;
+
+#define vec3_const_head vec4_const_head
+#define v3const v4const
+#define vec3s vec4s
 
 void push_float(float f[2]){
     float_stack[float_stack_head++]=f;
@@ -134,7 +134,7 @@ void push_vec3(vec3 f[2]){
 
 vec3[2]pull_vec3(bool c){
     if (c) {
-        vec3 f = v3const.vec3s[desc.vec3s+vec3_const_head++];
+        vec3 f = v3const.vec3s[desc.vec3s+vec3_const_head++].xyz;
         return vec3[2](f,f);
     }
     else {
@@ -143,7 +143,7 @@ vec3[2]pull_vec3(bool c){
 }
 
 vec3 cpull_vec3(){
-    return v3const.vec3s[desc.vec3s+vec3_const_head++];
+    return v3const.vec3s[desc.vec3s+vec3_const_head++].xyz;
 }
 
 void push_vec4(vec4 f[2]){
@@ -698,18 +698,18 @@ void pruneself (int pos) {
 }
 
 #define minpruning if (prune) { if (all(lessThan(in1[1],in2[0]))) {\
-    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
+    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
     passthroughself(OPPos);\
 } else if (all(lessThan(in2[1],in1[0]))) {\
-    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
+    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
     passthroughself(OPPos);\
 }}
 
 #define maxpruning if (prune) { if (all(greaterThan(in1[0],in2[1]))) {\
-    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
+    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
     passthroughself(OPPos);\
 } else if (all(greaterThan(in2[0],in1[1]))) {\
-    prunesome(OPPos,bool[6](true,false,false,false,false,false));\
+    prunesome(OPPos,bool[6](false,true,false,false,false,false));\
     passthroughself(OPPos);\
 }}
 
@@ -719,6 +719,13 @@ vec3 scene(vec3 p[2], bool prune)
 float[2]scene(vec3 p[2], bool prune)
 #endif
 {
+    if (prune)
+    {
+        for (int i = 0; i<=(masklen*8); i++)
+        pruneallchecks[i] = uint8_t(0);
+    }
+    //p[0]=p[0].yxz;
+    //p[1]=p[1].yxz;
     uint major_position=0;
     uint minor_position=0;
     
@@ -735,6 +742,12 @@ float[2]scene(vec3 p[2], bool prune)
         if(minor_position==0){
             get_caches;
         }
+        /*#ifdef implicit
+        if (mask[major_position] != 255) discard;
+        if (mask[major_position+1] != 255) discard;
+        if (mask[major_position+2] != 255) discard;
+        if (mask[major_position+3] != 255) discard;
+        #endif*/
         #ifdef debug
         /*if((minor_integer_cache[minor_position]&1023)==OPStop) {
             return vec3(0.,0.,1.);
@@ -1565,11 +1578,12 @@ float[2]scene(vec3 p[2], bool prune)
                         if (prune) {
                         if (in1[1] < in2[0])
                         {
-                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
+                            //return float[2](-1,-1);
+                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
                             passthroughself(OPPos);
                         } else if (in2[1] < in1[0])
                         {
-                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
+                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
                             passthroughself(OPPos);
                         }}
                         float[2]temp;
@@ -1585,11 +1599,11 @@ float[2]scene(vec3 p[2], bool prune)
                         if (prune) {
                         if (in1[0] > in2[1])
                         {
-                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
+                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
                             passthroughself(OPPos);
                         } else if (in2[0] > in1[1])
                         {
-                            prunesome(OPPos,bool[6](true,false,false,false,false,false));
+                            prunesome(OPPos,bool[6](false,true,false,false,false,false));
                             passthroughself(OPPos);
                         }}
                         float[2]temp;
@@ -2803,37 +2817,27 @@ float[2]scene(vec3 p[2], bool prune)
 
                     case OPSmoothMinMaterialFloat:
                     case OPSmoothMinFloat:{
-                        if(maskdefine){
-                            if(ifconst(0)) {float_const_head++;}
-                            if(ifconst(1)) {float_const_head++;}
-                            float_const_head++;
-                            break;
-                        }
-                        float k=cpull_float();
-                        float[2] a=pull_float(ifconst(0));
-                        float[2] b=pull_float(ifconst(1));
-                        float hmin=max(k-abs(a[0]-b[0]),0.);
-                        float hmax=max(k-abs(a[1]-b[1]),0.);
-                        float smin=min(a[0],b[0])-hmin*hmin*.25/k;
-                        float smax=min(a[1],b[1])-hmax*hmax*.25/k;
+                        inputmask3(float_const_head,float_const_head,float_const_head);
+                        float[2] k=pull_float(ifconst(0));
+                        float[2] a=pull_float(ifconst(1));
+                        float[2] b=pull_float(ifconst(2));
+                        float hmin=max(k[0]-abs(a[0]-b[0]),0.);
+                        float hmax=max(k[0]-abs(a[1]-b[1]),0.);
+                        float smin=min(a[0],b[0])-hmin*hmin*.25/k[0];
+                        float smax=min(a[1],b[1])-hmax*hmax*.25/k[0];
                         push_float(float[2](smin,smax));
                     }
                     break;
                     case OPSmoothMaxMaterialFloat:
                     case OPSmoothMaxFloat:{
-                        if(maskdefine){
-                            if(ifconst(0)) {float_const_head++;}
-                            if(ifconst(1)) {float_const_head++;}
-                            float_const_head++;
-                            break;
-                        }
-                        float k=cpull_float();
-                        float[2] a=pull_float(ifconst(0));
-                        float[2] b=pull_float(ifconst(1));
-                        float hmin=max(k-abs(a[0]-b[0]),0.);
-                        float hmax=max(k-abs(a[1]-b[1]),0.);
-                        float smin=max(a[0],b[0])+hmin*hmin*.25/k;
-                        float smax=max(a[1],b[1])+hmax*hmax*.25/k;
+                        inputmask3(float_const_head,float_const_head,float_const_head);
+                        float[2] k=pull_float(ifconst(0));
+                        float[2] a=pull_float(ifconst(1));
+                        float[2] b=pull_float(ifconst(2));
+                        float hmin=max(k[0]-abs(a[0]-b[0]),0.);
+                        float hmax=max(k[0]-abs(a[1]-b[1]),0.);
+                        float smin=max(a[0],b[0])+hmin*hmin*.25/k[0];
+                        float smax=max(a[1],b[1])+hmax*hmax*.25/k[0];
                         push_float(float[2](smin,smax));
                     }
                     break;
@@ -3084,13 +3088,13 @@ float[2]scene(vec3 p[2], bool prune)
                     {
                         inputmask2(float_const_head,vec3_const_head);
                         float[2] in2=pull_float(ifconst(0));
-                        #ifdef debug
+                        /*#ifdef debug
                         if (in2[0] == in2[1] && in2[0] == 0.2)
                         {return vec3(in2[0],in2[1],0.);
                         }else{
                             return vec3(in2[0],in2[1],1.);
                         }
-                        #endif
+                        #endif*/
                         vec3[2] in1=pull_vec3(ifconst(1));
                         /*#ifdef debug
                         return in1[0];
@@ -3108,12 +3112,58 @@ float[2]scene(vec3 p[2], bool prune)
                         push_float(out1);
                     }
                     break;
+
+                    case OPSDFTorus:
+                    {
+                        inputmask2(vec2_const_head,vec3_const_head);
+                        vec2[2] in2=pull_vec2(ifconst(0)); //t
+                        vec3[2] in1=pull_vec3(ifconst(1)); //p
+                        vec2[2] out1;
+                        float[2] out2;
+
+                        bvec2 mixer=mix(bvec2(false),greaterThan(in1[1].xz,vec2(0)),lessThan(in1[0].xz,vec2(0)));
+                        out1[0].x=length(mix(min(abs(in1[0].xz),abs(in1[1].xz)),vec2(0),mixer))-in2[1].x;
+                        out1[1].x=length(max(abs(in1[0].xz),abs(in1[1].xz)))-in2[0].x;
+                        out1[0].y = p[0].y;
+                        out1[1].y = p[1].y;
+
+                        mixer=mix(bvec2(false),greaterThan(out1[1],vec2(0)),lessThan(out1[0],vec2(0)));
+                        out2[0]=length(mix(min(abs(out1[0]),abs(out1[1])),vec2(0),mixer))-in2[1].y;
+                        out2[1]=length(max(abs(out1[0]),abs(out1[1])))-in2[0].y;
+                        
+                        push_float(out2);
+                    }
+                    break;
+
+                    //this doesn't work internally but it's probably fiiiine
+                    case OPSDFBox:
+                    {
+                        inputmask2(vec3_const_head,vec3_const_head);
+                        vec3[2] in2=pull_vec3(ifconst(0)); //r
+                        vec3[2] in1=pull_vec3(ifconst(1)); //p
+
+                        #ifdef debug
+                        return in1[0];
+                        #endif
+
+                        vec3[2]temp;
+                        bvec3 mixer = bvec3(false);
+                        vec3 zero = vec3(0);
+                        absolute;
+                        subtract;
+                        float out1 = length(max(in1[0],0.0))+min(max(in1[0].x,max(in1[0].y,in1[0].z)),0.0);
+                        float out2 = length(max(in1[1],0.0))+min(max(in1[1].x,max(in1[1].y,in1[1].z)),0.0);
+                        push_float(float[2](min(out1,out2),max(out1,out2)));
+                    }
+                    break;
                     
                     case OPNop:
                     break;
                     case OPStop:
-                    if (prune)
-                    pruneall(uint8_t((major_position<<3)|minor_position));
+                    if (prune) {
+                        //return float[2](-1,-1);
+                        pruneall(uint8_t((major_position<<3)|minor_position));
+                    }
                     #ifdef debug
                     return vec3(pull_float(ifconst(0))[0]);
                     #else
@@ -3124,7 +3174,7 @@ float[2]scene(vec3 p[2], bool prune)
                     #ifdef debug
                     return vec3(float(minor_integer_cache[minor_position]));
                     #else
-                    return float[2](0,0);
+                    return float[2](-1,-1);
                     #endif
                 }
         
@@ -3135,8 +3185,9 @@ float[2]scene(vec3 p[2], bool prune)
             major_position++;
             if(major_position==masklen)
             {
-                if (prune)
-                pruneall(uint8_t((masklen*8)));
+                if (prune) {
+                    pruneall(uint8_t(masklen<<3));
+                }
                 #ifdef debug
                 return vec3(pull_float(false)[0]);
                 #else
