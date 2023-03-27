@@ -1,20 +1,18 @@
 use std::{
     collections::HashMap,
-    default,
     io::{Cursor, Read},
     mem,
 };
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{
-    num_traits::float, Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix,
+    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix,
     Vector2, Vector3, Vector4,
 };
 use obj::{LoadConfig, ObjData, ObjError};
 use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{Buffer, BufferAllocateInfo, BufferUsage, Subbuffer},
-    half::f16,
     pipeline::graphics::vertex_input::Vertex,
 };
 
@@ -203,7 +201,7 @@ type MCSGCSGPart = HashMap<String, String>;
 
 fn matrix3_from_string(input: &String) -> Result<Matrix3<f32>, String> {
     let vec = input
-        .split(" ")
+        .split(' ')
         .map(|s| s.parse::<f32>())
         .collect::<Result<Vec<f32>, _>>()
         .map_err(|_| "not floats")?;
@@ -214,7 +212,7 @@ fn matrix3_from_string(input: &String) -> Result<Matrix3<f32>, String> {
 
 fn vector3_from_string(input: &String) -> Result<Vector3<f32>, String> {
     let vec = input
-        .split(" ")
+        .split(' ')
         .map(|s| s.parse::<f32>())
         .collect::<Result<Vec<f32>, _>>()
         .map_err(|_| "not floats")?;
@@ -225,7 +223,7 @@ fn vector3_from_string(input: &String) -> Result<Vector3<f32>, String> {
 
 fn point3_from_string(input: &String) -> Result<Point3<f32>, String> {
     let vec = input
-        .split(" ")
+        .split(' ')
         .map(|s| s.parse::<f32>())
         .collect::<Result<Vec<f32>, _>>()
         .map_err(|_| "not floats")?;
@@ -244,20 +242,17 @@ fn get_trs(o: &HashMap<String, String>) -> Result<TRS, String> {
         translation: o
             .get("t")
             .map(point3_from_string)
-            .transpose()
-            .map_err(|e| e.to_string())?
+            .transpose()?
             .unwrap_or(Point3::origin()),
         rotation: o
             .get("r")
             .map(matrix3_from_string)
-            .transpose()
-            .map_err(|e| e.to_string())?
+            .transpose()?
             .unwrap_or(Matrix3::identity()),
         scale: o
             .get("s")
             .map(vector3_from_string)
-            .transpose()
-            .map_err(|e| e.to_string())?
+            .transpose()?
             .unwrap_or(Vector3 {
                 x: 1.,
                 y: 1.,
@@ -268,8 +263,7 @@ fn get_trs(o: &HashMap<String, String>) -> Result<TRS, String> {
 fn get_color(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
     Ok(o.get("color")
         .map(vector3_from_string)
-        .transpose()
-        .map_err(|e| e.to_string())?
+        .transpose()?
         .unwrap_or(Vector3 {
             x: 255.,
             y: 255.,
@@ -280,8 +274,7 @@ fn get_color(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
 fn get_rgb(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
     Ok(o.get("rgb")
         .map(vector3_from_string)
-        .transpose()
-        .map_err(|e| e.to_string())?
+        .transpose()?
         .unwrap_or(Vector3 {
             x: 255.,
             y: 255.,
@@ -293,7 +286,7 @@ fn get_f32(o: &HashMap<String, String>, tag: &str) -> Result<f32, String> {
     get_f32_default(o, tag, 0.)
 }
 
-fn get_f32_default(o: &HashMap<String, String>, tag: &str, default: f32) -> Result<f32, String> {
+fn get_f32_default(o: &HashMap<String, String>, tag: &str, _default: f32) -> Result<f32, String> {
     Ok(o.get(tag)
         .map(|c| c.parse::<f32>())
         .transpose()
@@ -339,7 +332,7 @@ fn get_half(o: &HashMap<String, String>) -> Result<Half, String> {
 }
 
 pub fn load_csg(
-    memory_allocator: &MemoryAllocator,
+    _memory_allocator: &MemoryAllocator,
     input: &mut dyn Read,
     name: String,
 ) -> Result<Vec<CSG>, String> {
@@ -349,10 +342,10 @@ pub fn load_csg(
     mcsg.object
         .iter()
         .enumerate()
-        .map(|(i, o)| {
+        .map(|(_i, o)| {
             let name = name.clone() + "_" + o.get("name").unwrap_or(&"unknown".to_owned());
-            let trs = get_trs(&o)?;
-            let color = get_color(&o)?;
+            let _trs = get_trs(o)?;
+            let _color = get_color(o)?;
 
             let cid = o
                 .get("cid")
@@ -371,15 +364,15 @@ pub fn load_csg(
                 .iter()
                 .map(|inpart| {
                     let ty = inpart.get("type").ok_or("no type!")?.as_str();
-                    let mut csgpart = CSGPart::opcode(InstructionSet::OPNop, vec![]);
+                    let csgpart = CSGPart::opcode(InstructionSet::OPNop, vec![]);
                     match ty {
                         "sphere" => {
-                            let blend = get_f32(&inpart, "blend")?;
-                            let shell = get_percentage(&inpart, "shell%")?;
-                            let power = get_f32_default(&inpart, "power", 2.)?;
-                            let rgb = get_rgb(&inpart)?;
-                            let trs = get_trs(&inpart)?;
-                            let half = get_half(&inpart)?;
+                            let _blend = get_f32(inpart, "blend")?;
+                            let _shell = get_percentage(inpart, "shell%")?;
+                            let _power = get_f32_default(inpart, "power", 2.)?;
+                            let _rgb = get_rgb(inpart)?;
+                            let _trs = get_trs(inpart)?;
+                            let _half = get_half(inpart)?;
                         }
                         _ => {} //return Err("unknown type of csg".to_owned()),
                     }

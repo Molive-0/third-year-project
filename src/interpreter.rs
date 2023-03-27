@@ -723,7 +723,7 @@ impl<'csg> Interpreter<'csg> {
         }
     }
 
-    fn clear_stacks(&mut self) -> () {
+    fn clear_stacks(&mut self) {
         self.float_stack.clear();
         self.vec2_stack.clear();
         self.vec3_stack.clear();
@@ -1704,6 +1704,6 @@ impl<'csg> Interpreter<'csg> {
                 }
             }
         }
-        return self.pull(Inputs::Variable);
+        self.pull(Inputs::Variable)
     }
 }

@@ -1,5 +1,5 @@
 use std::env;
-use std::fmt::format;
+
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -59,23 +59,21 @@ fn main() -> io::Result<()> {
     for (index, l) in f.lines().enumerate() {
         let line = l?;
         let entries = line.split("//").map(str::trim).collect::<Vec<&str>>();
-        if entries[0].len() == 0 {
+        if entries[0].is_empty() {
             continue;
         }
 
         let name = &entries[0][11..entries[0].len() - 12];
 
         out += &format!(
-            "#[allow(non_snake_case)]\n#[allow(dead_code)]\n{}={},\n",
-            name, index
+            "#[allow(non_snake_case)]\n#[allow(dead_code)]\n{name}={index},\n"
         );
 
         inputimpl += &format!(
-            "#[allow(non_snake_case)]\nInstructionSet::{} => vec![",
-            name
+            "#[allow(non_snake_case)]\nInstructionSet::{name} => vec!["
         );
-        for input in entries[1].split(" ").map(str::trim) {
-            if input.len() == 0 {
+        for input in entries[1].split(' ').map(str::trim) {
+            if input.is_empty() {
                 continue;
             }
             match input {
@@ -86,17 +84,16 @@ fn main() -> io::Result<()> {
                 "M2" => inputimpl += "InputTypes::Mat2,",
                 "M3" => inputimpl += "InputTypes::Mat3,",
                 "M4" => inputimpl += "InputTypes::Mat4,",
-                _ => panic!("unknown input?? [{}]", input),
+                _ => panic!("unknown input?? [{input}]"),
             }
         }
         inputimpl += "],\n";
 
         outputimpl += &format!(
-            "#[allow(non_snake_case)]\nInstructionSet::{} => vec![",
-            name
+            "#[allow(non_snake_case)]\nInstructionSet::{name} => vec!["
         );
-        for output in entries[2].split(" ").map(str::trim) {
-            if output.len() == 0 {
+        for output in entries[2].split(' ').map(str::trim) {
+            if output.is_empty() {
                 continue;
             }
             match output {
@@ -107,7 +104,7 @@ fn main() -> io::Result<()> {
                 "M2" => outputimpl += "InputTypes::Mat2,",
                 "M3" => outputimpl += "InputTypes::Mat3,",
                 "M4" => outputimpl += "InputTypes::Mat4,",
-                _ => panic!("unknown output?? [{}]", output),
+                _ => panic!("unknown output?? [{output}]"),
             }
         }
         outputimpl += "],\n";
@@ -120,7 +117,7 @@ fn main() -> io::Result<()> {
     out += &outputimpl;
     out += "}";
 
-    fs::write(&dest_path, out).unwrap();
+    fs::write(dest_path, out).unwrap();
     println!("cargo:rerun-if-changed=build.rs");
     Ok(())
 }

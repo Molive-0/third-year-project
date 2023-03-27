@@ -1,6 +1,6 @@
 use std::fmt::Display;
-use std::io::{BufReader, Cursor, Read};
-use std::ops::{AddAssign, MulAssign, Neg};
+use std::io::{BufReader, Read};
+
 use std::str::Chars;
 
 use serde::de::{
@@ -8,7 +8,7 @@ use serde::de::{
     Visitor,
 };
 use serde::{forward_to_deserialize_any, Deserialize};
-use utf8::{BufReadDecoder, BufReadDecoderError};
+use utf8::{BufReadDecoder};
 
 type Result<T> = core::result::Result<T, Error>;
 
@@ -31,7 +31,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Message(msg) | Error::UTF8(msg) => f.write_str(msg),
-            _ => f.write_fmt(format_args!("Error: {:?}", self)),
+            _ => f.write_fmt(format_args!("Error: {self:?}")),
         }
     }
 }
@@ -135,7 +135,7 @@ impl<'de> Deserializer<'de> {
                                 Ok(s) => {
                                     s.clone_into(&mut self.read_buf);
                                 }
-                                Err(e) => return Err(Error::UTF8(format!("{}", e))),
+                                Err(e) => return Err(Error::UTF8(format!("{e}"))),
                             };
                         }
                         None => return Err(Error::Eof),
@@ -175,7 +175,7 @@ impl<'de> Deserializer<'de> {
                             Ok(s) => {
                                 s.clone_into(&mut self.read_buf);
                             }
-                            Err(e) => return Err(Error::UTF8(format!("{}", e))),
+                            Err(e) => return Err(Error::UTF8(format!("{e}"))),
                         };
                     }
                     None => return Err(Error::Eof),

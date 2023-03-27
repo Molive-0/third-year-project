@@ -1,8 +1,8 @@
 #![feature(variant_count)]
 use bytemuck::{Zeroable, Pod};
 use cgmath::{
-    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, Rad, SquareMatrix, Vector2,
-    Vector3, Vector4, Zero,
+    Deg, EuclideanSpace, Euler, Matrix3, Matrix4, Point3, Rad, SquareMatrix,
+    Vector3,
 };
 use instruction_set::InputTypes;
 use vulkano::command_buffer::{CopyBufferInfo, PrimaryCommandBufferAbstract};
@@ -15,7 +15,7 @@ use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceOwned, Features, QueueFlags, Queue};
 use vulkano::format::Format;
-use vulkano::half::f16;
+
 use vulkano::image::view::ImageViewCreateInfo;
 use vulkano::image::{AttachmentImage, SampleCount};
 use vulkano::memory::allocator::{MemoryAllocatePreference, MemoryUsage, StandardMemoryAllocator};
@@ -132,7 +132,7 @@ fn main() {
                     p.queue_family_properties()
                 .iter()
                 .enumerate()
-                .position(|(i, q)| {
+                .position(|(_i, q)| {
                     q.queue_flags.intersects(QueueFlags::TRANSFER)
                 })}
                 
@@ -563,7 +563,7 @@ fn main() {
                         button: b,
                         ..
                     } => {
-                        println!("MOUSE {:?}, {:?}, {:?}", d, s, b);
+                        println!("MOUSE {d:?}, {s:?}, {b:?}");
                         if b == &MouseButton::Right {
                             looking = s == &ElementState::Pressed;
                         }
@@ -595,8 +595,8 @@ fn main() {
                 if looking {
                     camforward.x -= Deg(delta.1 as f32) * gstate.cursor_sensitivity * 0.3;
                     camforward.y += Deg(delta.0 as f32) * gstate.cursor_sensitivity * 0.3;
-                    camforward.x = camforward.x + Deg(360f32) % Deg(360f32);
-                    camforward.y = camforward.y + Deg(360f32) % Deg(360f32);
+                    camforward.x += Deg(360f32) % Deg(360f32);
+                    camforward.y += Deg(360f32) % Deg(360f32);
                 }
             }
             Event::RedrawEventsCleared => {
@@ -721,7 +721,7 @@ fn main() {
                     *sub.write().unwrap() = uniform_data;
 
                     if looking {
-                        println!("campos: {:?} camforward: {:?}", campos, camforward);
+                        println!("campos: {campos:?} camforward: {camforward:?}");
                     }
 
                     (pc, sub)
@@ -767,8 +767,8 @@ fn main() {
                     &descriptor_set_allocator,
                     implicit_layout.clone(),
                     [
-                        WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer.clone()),
-                        WriteDescriptorSet::buffer(1, cam_set.clone()),
+                        WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer),
+                        WriteDescriptorSet::buffer(1, cam_set),
                         WriteDescriptorSet::buffer(2, subbuffers.desc.clone()),
                         WriteDescriptorSet::buffer(3, subbuffers.scene.clone()),
                         WriteDescriptorSet::buffer(4, subbuffers.floats.clone()),
@@ -790,10 +790,10 @@ fn main() {
                 if COMPUTE_FUZZING {
 
                     let mut fake_csg = vec![];
-                    for i in 0..(32)
+                    for i in 0..32
                     {
                         fake_csg.push(
-                            CSG{ name: format!("fuzz_{}",i), parts: vec![
+                            CSG{ name: format!("fuzz_{i}"), parts: vec![
                                 CSGPart::opcode(InstructionSet::OPMulVec3Float, vec![Inputs::Variable, Inputs::Float(0.9)]),
                                 CSGPart::opcode(InstructionSet::OPDupVec3, vec![Inputs::Variable]),
                                 CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.7, (i as f64), -0.7].into())]),
@@ -835,7 +835,7 @@ fn main() {
                             //WriteDescriptorSet::buffer(9, compute_subbuffers.mat3s.clone()),
                             //WriteDescriptorSet::buffer(10, compute_subbuffers.mat4s.clone()),
                             //WriteDescriptorSet::buffer(11, compute_subbuffers.mats.clone()),
-                            WriteDescriptorSet::buffer(12, compute_subbuffers.deps.clone()),
+                            WriteDescriptorSet::buffer(12, compute_subbuffers.deps),
                             //WriteDescriptorSet::buffer(20, compute_subbuffers.masks.clone()),
                             WriteDescriptorSet::buffer(30, compute_result_buffer.clone()),],
                     )
@@ -871,7 +871,7 @@ fn main() {
 
                     let content = compute_result_buffer.read().unwrap();
                     for (val,csg) in content.iter().zip(fake_csg.iter()) {
-                        println!("{:?}",val);
+                        println!("{val:?}");
                         let expected = Interpreter::new(csg).scene(Vector3::new(1.,1.,1.)) as f32;
                         if expected != val.f[0] {
                             println!("ERROR: expected {}, got {}", expected, val.f[0]);
@@ -886,7 +886,7 @@ fn main() {
                             recreate_swapchain = true;
                             return;
                         }
-                        Err(e) => panic!("Failed to acquire next image: {:?}", e),
+                        Err(e) => panic!("Failed to acquire next image: {e:?}"),
                     };
 
                 if suboptimal {
@@ -1002,7 +1002,7 @@ fn main() {
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
                     Err(e) => {
-                        println!("Failed to flush future: {:?}", e);
+                        println!("Failed to flush future: {e:?}");
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
                 }
@@ -1127,9 +1127,9 @@ where
                 depth_range: 0.0..1.0,
             },
         ]))
-        .fragment_shader(implicit_fs.entry_point("main").unwrap(), implicit_fs_specs.clone())
-        .task_shader(implicit_ts.entry_point("main").unwrap(), implicit_ts_specs.clone())
-        .mesh_shader(implicit_ms.entry_point("main").unwrap(), implicit_ms_specs.clone())
+        .fragment_shader(implicit_fs.entry_point("main").unwrap(), implicit_fs_specs)
+        .task_shader(implicit_ts.entry_point("main").unwrap(), implicit_ts_specs)
+        .mesh_shader(implicit_ms.entry_point("main").unwrap(), implicit_ms_specs)
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
             //front_face: Fixed(Clockwise),
@@ -1137,7 +1137,7 @@ where
             ..RasterizationState::default()
         })
         .multisample_state(MultisampleState {
-            rasterization_samples: Subpass::from(render_pass.clone(), 0)
+            rasterization_samples: Subpass::from(render_pass, 0)
                 .unwrap()
                 .num_samples()
                 .unwrap(),
@@ -1227,7 +1227,7 @@ where
     ).unwrap();
     let commands = builder.build().unwrap();
 
-    commands.execute(transfer_queue.clone())
+    commands.execute(transfer_queue)
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap()
@@ -1264,7 +1264,7 @@ fn object_size_dependent_setup(
     let mut mat2s: Vec<[[f32; 2]; 2]> = vec![Default::default()];
     let mut mat3s: Vec<[[f32; 3]; 3]> = vec![Default::default()];
     let mut mat4s: Vec<[[f32; 4]; 4]> = vec![Default::default()];
-    let mut mats: Vec<[[f32; 4]; 4]> = vec![Default::default()];
+    let mats: Vec<[[f32; 4]; 4]> = vec![Default::default()];
     let mut scene: Vec<[u32; 4]> = vec![Default::default()];
     let mut deps: Vec<[u8; 2]> = vec![Default::default()];
     let mut desc: Vec<Description> = vec![Default::default()];
@@ -1496,16 +1496,16 @@ fn object_size_dependent_setup(
         
     }
 
-    println!("floats: {:?}", floats);
-    println!("vec2s: {:?}", vec2s);
-    println!("vec3/4s: {:?}", vec4s);
-    println!("mat2s: {:?}", mat2s);
-    println!("mat3s: {:?}", mat3s);
-    println!("mat4s: {:?}", mat4s);
-    println!("mats: {:?}", mats);
-    println!("scene: {:?}", scene);
-    println!("deps: {:?}", deps);
-    println!("desc: {:?}", desc);
+    println!("floats: {floats:?}");
+    println!("vec2s: {vec2s:?}");
+    println!("vec3/4s: {vec4s:?}");
+    println!("mat2s: {mat2s:?}");
+    println!("mat3s: {mat3s:?}");
+    println!("mat4s: {mat4s:?}");
+    println!("mats: {mats:?}");
+    println!("scene: {scene:?}");
+    println!("deps: {deps:?}");
+    println!("desc: {desc:?}");
 
     let fragment_masks_buffer = Buffer::new_slice(
         &allocator,
@@ -1538,7 +1538,7 @@ fn object_size_dependent_setup(
     let csg_mat3s = gpu_buffer(mat3s, &allocator, &staging, command_allocator, queue.clone());
     let csg_mat4s = gpu_buffer(mat4s, &allocator, &staging, command_allocator, queue.clone());
     let csg_mats = gpu_buffer(mats, &allocator, &staging, command_allocator, queue.clone());
-    let csg_deps = gpu_buffer(deps, &allocator, &staging, command_allocator, queue.clone());
+    let csg_deps = gpu_buffer(deps, &allocator, &staging, command_allocator, queue);
 
     Subbuffers {
         masks: fragment_masks_buffer,
