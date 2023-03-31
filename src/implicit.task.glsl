@@ -19,8 +19,7 @@ struct MeshMasks
     vec3 bottomleft;            //12
     vec3 topright;              //12
     uint globalindex;           //4
-    vec3 globaloffset;          //12
-};                              //total = 1000 bytes
+};                              //total = 988 bytes
 taskPayloadSharedEXT MeshMasks meshmasks;
 
 shared uint index;
@@ -36,33 +35,10 @@ void main()
         index=0;
     }
 
-    //#define CLIPCHECK 65536
-    
-    /*float[6]bounds={
-        CLIPCHECK-sceneoverride(vec3(CLIPCHECK,0,0),false),
-        CLIPCHECK-sceneoverride(vec3(0,CLIPCHECK,0),false),
-        CLIPCHECK-sceneoverride(vec3(0,0,CLIPCHECK),false),
-        -CLIPCHECK+sceneoverride(vec3(-CLIPCHECK,0,0),false),
-        -CLIPCHECK+sceneoverride(vec3(0,-CLIPCHECK,0),false),
-        -CLIPCHECK+sceneoverride(vec3(0,0,-CLIPCHECK),false),
-    };*/
-    /*const float[6]bounds={
-        1,1,1,-1,-1,-1,
-    };*/
-
     float[6]bounds=scene_description.desc[gl_WorkGroupID.x+1].bounds;
- 
-
-    /*bounds[0] += abs(bounds[0] * 0.01);
-    bounds[1] += abs(bounds[1] * 0.01);
-    bounds[2] += abs(bounds[2] * 0.01);
-    bounds[3] -= abs(bounds[3] * 0.01);
-    bounds[4] -= abs(bounds[4] * 0.01);
-    bounds[5] -= abs(bounds[5] * 0.01);*/
     
     vec3 bottomleft = vec3(bounds[3],bounds[4],bounds[5]);
     vec3 topright   = vec3(bounds[0],bounds[1],bounds[2]);
-    vec3 globaloffset = vec3(0);//(topright+bottomleft)/2.;
 
 #define adjust(var) \
     var *= vec3(0.25,0.25,0.25);\
@@ -77,35 +53,24 @@ void main()
 
     bool triangle_fine;
     if (!DISABLE_TRACE) {
-        float[2] check = scene(vec3[2](bottomleft+globaloffset,topright+globaloffset), true);
+        float[2] check = scene(vec3[2](bottomleft,topright), true);
         triangle_fine = (check[0] <= 0) && (check[1] >= 0);
     } else {
         triangle_fine = true;
     }
 
-    //default_mask();
-    //float[2] check = scene(vec3[2](bottomleft,topright), false);
-    //float[2] check = scene(vec3[2](bottomleft-globaloffset,topright-globaloffset), false);
-    //float[2] check = scene(vec3[2](vec3(bounds[3],bounds[4],bounds[5]),vec3(bounds[0],bounds[1],bounds[2])), false);
-
-    //if (((check[0] <= 0) && (check[1] >= 0)) )//|| ((check[1] <= 0) && ()))
-    //if ((bottomleft.x >= -1) && (bottomleft.y >= -1) && (bottomleft.z >= -1) && (topright.x <= 1) && (topright.y <= 1) && (topright.z <= 1))
-    //if ((gl_LocalInvocationID.x == 0) && (bottomleft.x >= 0))
     if (triangle_fine)
     {
         uint localindex = atomicAdd(index, 1);
-        //if (localindex < 32) {
         meshmasks.masks[localindex]=mask;
         meshmasks.enabled[localindex]=uint8_t(gl_LocalInvocationID.x);
-        //}
     }
 
     if (gl_LocalInvocationID.x==0)
     {
-        meshmasks.bottomleft = vec3(bounds[3],bounds[4],(bounds[5]*0.5) + ((bounds[2]-bounds[5])*0.5 * (-0.5+gl_WorkGroupID.z)));
-        meshmasks.topright   = vec3(bounds[0],bounds[1],(bounds[2]*0.5) + ((bounds[2]-bounds[5])*0.5 * (-0.5+gl_WorkGroupID.z)));
+        meshmasks.bottomleft = vec3(bounds[3],bounds[4],(bounds[5]*0.5) + ((bounds[2]-bounds[5])*0.5 * (-0.5+gl_WorkGroupID.z)) + ((bounds[2]+bounds[5])*0.25));
+        meshmasks.topright   = vec3(bounds[0],bounds[1],(bounds[2]*0.5) + ((bounds[2]-bounds[5])*0.5 * (-0.5+gl_WorkGroupID.z)) + ((bounds[2]+bounds[5])*0.25));
         meshmasks.globalindex = gl_WorkGroupID.x*2+gl_WorkGroupID.z;
-        meshmasks.globaloffset = globaloffset/0.25;
     }
 
     barrier();

@@ -1295,6 +1295,7 @@ fn object_size_dependent_setup(
             //CSGPart::opcode(InstructionSet::OPAddVec3Vec3, vec![Inputs::Variable, Inputs::Vec3([-0.0, -0.0, -0.0].into())]),
             //CSGPart::opcode(InstructionSet::OPSDFSphere,vec![Inputs::Float(1.2), Inputs::Variable]),
             CSGPart::opcode(InstructionSet::OPSDFTorus, vec![Inputs::Vec2([0.7, 0.4].into()), Inputs::Variable]),
+            //CSGPart::opcode(InstructionSet::OPSDFBox, vec![Inputs::Vec3([0.7, 0.4, 0.7].into()), Inputs::Variable]),
             CSGPart::opcode(InstructionSet::OPMinFloat, vec![Inputs::Variable,Inputs::Variable]),
             CSGPart::opcode(InstructionSet::OPDivFloatFloat, vec![Inputs::Variable, Inputs::Float(0.9)]),
             CSGPart::opcode(InstructionSet::OPStop, vec![Inputs::Variable]),

@@ -3197,17 +3197,4 @@ float[2]scene(vec3 p[2], bool prune)
         }
     }
 }
-
-#ifdef debug
-vec3 sceneoverride(vec3 p, bool m)
-{
-    return scene(vec3[2](p,p), false);
-}
-#else
-float sceneoverride(vec3 p, bool m)
-{
-    return scene(vec3[2](p,p), false)[0];
-}
-#endif
-
 #endif//ifndef intervals

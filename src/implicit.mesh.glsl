@@ -18,7 +18,6 @@ layout(triangles,max_vertices=256,max_primitives=192)out;
 layout(location=0)out VertexOutput
 {
     vec4 position;
-    vec3 globaloffset;
 }vertexOutput[];
 
 struct MeshMasks
@@ -28,8 +27,7 @@ struct MeshMasks
     vec3 bottomleft;            //12
     vec3 topright;              //12
     uint globalindex;           //4
-    vec3 globaloffset;          //12
-};                              //total = 1000 bytes
+};                              //total = 988 bytes
 taskPayloadSharedEXT MeshMasks meshmasks;
 
 layout(set=0,binding=20, std430)restrict writeonly buffer fragmentMasks{
@@ -127,22 +125,6 @@ void main()
         vertexOutput[vindex+5].position=(positions[5]);
         vertexOutput[vindex+6].position=(positions[6]);
         vertexOutput[vindex+7].position=(positions[7]);
-        vertexOutput[vindex+0].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+1].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+2].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+3].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+4].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+5].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+6].globaloffset=(meshmasks.globaloffset);
-        vertexOutput[vindex+7].globaloffset=(meshmasks.globaloffset);
-        /*vertexOutput[vindex+0].position=vec4(bottomleft,1.);
-        vertexOutput[vindex+1].position=vec4(bottomleft.x,bottomleft.y,topright.z,1.);
-        vertexOutput[vindex+2].position=vec4(bottomleft.x,topright.y,bottomleft.z,1.);
-        vertexOutput[vindex+3].position=vec4(bottomleft.x,topright.y,topright.z,1.);
-        vertexOutput[vindex+4].position=vec4(topright.x,bottomleft.y,bottomleft.z,1.);
-        vertexOutput[vindex+5].position=vec4(topright.x,bottomleft.y,topright.z,1.);
-        vertexOutput[vindex+6].position=vec4(topright.x,topright.y,bottomleft.z,1.);
-        vertexOutput[vindex+7].position=vec4(topright,1.);*/
 
         if(signingvec.x){
             gl_PrimitiveTriangleIndicesEXT[pindex+0]=uvec3(4,5,6)+uvec3(vindex);
