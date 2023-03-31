@@ -11,7 +11,7 @@ vulkano = "0.32"
 vulkano-shaders = "0.32"
 # The Vulkan library doesn't provide any functionality to create and handle windows, as
 # this would be out of scope. In order to open a window, we are going to use the `winit` crate.
-winit = "0.27"
+winit = "0.28"
 # The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
 # and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
 vulkano-win = "0.32"
@@ -26,19 +26,15 @@ bytemuck = { version = "1.13", features = [
 
 cgmath = "0.18"
 
-rodio = "0.16"
+egui = "0.21"
+egui_winit_vulkano = "0.23"
 
-egui = "0.20"
-egui_winit_vulkano = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
-ash = "*"
+utf-8 = "0.7"
 
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-
-utf-8 = "*"
-
-rayon = "*"
+rayon = "1.7"
 
 rand = "0.8.5"
 

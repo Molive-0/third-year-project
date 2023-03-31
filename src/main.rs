@@ -30,7 +30,7 @@ use vulkano::swapchain::{PresentMode, SwapchainPresentInfo};
 use vulkano::VulkanLibrary;
 use winit::event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode};
 
-use egui_winit_vulkano::Gui;
+use egui_winit_vulkano::{Gui,GuiConfig};
 use rayon::prelude::*;
 use vulkano::pipeline::StateMode::Fixed;
 use vulkano::{
@@ -236,13 +236,9 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "vertex",
             path: "src/triangle.vert.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
-            spirv_version: "1.5"
+            spirv_version: "1.5",
+            custom_derives: [Debug, Clone, Copy],
         }
     }
 
@@ -250,14 +246,10 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "fragment",
             path: "src/frag.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
             spirv_version: "1.5",
-            define: [("triangle","1")]
+            define: [("triangle","1")],
+            custom_derives: [Debug, Clone, Copy],
         }
     }
 
@@ -265,13 +257,9 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "mesh",
             path: "src/implicit.mesh.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
-            spirv_version: "1.5"
+            spirv_version: "1.5",
+            custom_derives: [Debug, Clone, Copy],
         }
     }
 
@@ -279,13 +267,9 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "task",
             path: "src/implicit.task.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
-            spirv_version: "1.5"
+            spirv_version: "1.5",
+            custom_derives: [Debug, Clone, Copy],
         }
     }
 
@@ -293,14 +277,10 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "fragment",
             path: "src/frag.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
             spirv_version: "1.5",
-            define: [("implicit","1")]
+            define: [("implicit","1")],
+            custom_derives: [Debug, Clone, Copy],
         }
     }
 
@@ -308,13 +288,9 @@ fn main() {
         vulkano_shaders::shader!{
             ty: "compute",
             path: "src/fuzz.comp.glsl",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-
-                #[derive(Clone, Copy, Zeroable, Pod, Debug)]
-            },
             vulkan_version: "1.2",
             spirv_version: "1.5",
+            custom_derives: [Debug, Clone, Copy],
         }
     }
     
@@ -483,9 +459,13 @@ fn main() {
     let mut gui = Gui::new_with_subpass(
         &event_loop,
         surface.clone(),
-        None,
         queue.clone(),
         Subpass::from(render_pass.clone(), 1).unwrap(),
+        GuiConfig {
+            preferred_format: Some(images[0].format()),
+            is_overlay: true,
+            samples: SampleCount::Sample4
+        }
     );
 
     let mut campos = Point3 {
@@ -707,11 +687,11 @@ fn main() {
                         * Matrix4::from_angle_z(Deg(180f32))
                         * Matrix4::from_translation(Point3::origin() - campos);
 
-                    let pc = mesh_vs::ty::PushConstantData {
+                    let pc = mesh_vs::PushConstantData {
                         world: Matrix4::identity().into(),
                     };
 
-                    let uniform_data = implicit_fs::ty::Camera {
+                    let uniform_data = implicit_fs::Camera {
                         view: view.into(),
                         proj: proj.into(),
                         campos: (campos).into(),
@@ -740,7 +720,7 @@ fn main() {
                         col[i][2] = light.colour.z;
                     }
 
-                    let uniform_data = mesh_fs::ty::Lights {
+                    let uniform_data = mesh_fs::Lights {
                         pos,
                         col,
                         light_count: gstate.lights.len() as u32,
@@ -815,7 +795,7 @@ fn main() {
                         [1.,1.,1.,1.,5.,1.]
                     ),true);
 
-                    let compute_result_buffer:Subbuffer<[cs::ty::Results]> = uniform_buffer.allocate_slice((fake_csg.len()+1) as u64).unwrap();
+                    let compute_result_buffer:Subbuffer<[cs::Results]> = uniform_buffer.allocate_slice((fake_csg.len()+1) as u64).unwrap();
 
 
                     let compute_layout = compute_pipeline.layout().set_layouts().get(0).unwrap();

@@ -24,7 +24,7 @@ layout(location=1)in vec4 tri_pos;
 layout(location=0)out vec4 f_color;
 
 /// SHARED CODE ///
-vec3 shading(vec3 normal, vec3 position)
+vec3 shading(vec3 normal, vec4 position)
 {
     vec3 accum=vec3(0.,0.,0.);
     mat3 rotation=mat3(pc.world[0].xyz,pc.world[1].xyz,pc.world[2].xyz);
@@ -32,7 +32,7 @@ vec3 shading(vec3 normal, vec3 position)
     
     for(int i=0;i<light_uniforms.light_count;i++)
     {
-        accum+=light_uniforms.col[i].xyz*((dot(normalize(rotation*normal),normalize(light_uniforms.pos[i].xyz-position))*.5)+.5);
+        accum+=light_uniforms.col[i].xyz*((dot(normalize(rotation*normal),normalize(light_uniforms.pos[i].xyz-position.xyz))*.5)+.5);
     }
     
     return accum;
@@ -135,7 +135,7 @@ void main(){
     {
         vec3 n=getNormal(p,td.y);
         //f_color=vec4(1.);
-        f_color=vec4(shading(n, p),1.);
+        f_color=vec4(shading(n, inverse(pc.world)*vec4(p,1.)),1.);
         
         vec4 tpoint=camera_uniforms.proj*camera_uniforms.view*pc.world*vec4(p,1);
         gl_FragDepth=(tpoint.z/tpoint.w);
@@ -151,7 +151,7 @@ void main(){
 
 //Mesh Surface Entrypoint
 void main(){
-    f_color=vec4(shading(tri_normal, tri_pos.xyz),1.);
+    f_color=vec4(shading(tri_normal, tri_pos),1.);
 }
 
 #endif

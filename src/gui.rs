@@ -54,7 +54,7 @@ pub fn gui_up(gui: &mut Gui, state: &mut GState) {
     gui.immediate_ui(|gui| {
         let ctx = gui.context();
         egui::SidePanel::left(Id::new("main_left"))
-            .frame(Frame::default().fill(Color32::from_rgba_unmultiplied(100, 100, 100, 200)))
+            .frame(Frame::default().fill(Color32::from_rgba_unmultiplied(50, 50, 50, 200)))
             .show(&ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add(egui::widgets::Label::new("Efficient Realtime Rendering of Complex Closed Form Implicit Surfaces Using Modern RTX Enabled GPUs"));
