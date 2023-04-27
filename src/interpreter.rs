@@ -6,7 +6,7 @@ use crate::{
 use cgmath::{Array, ElementWise, InnerSpace, MetricSpace, VectorSpace};
 
 #[derive(Clone, Debug)]
-pub struct Interpreter<'csg> {
+pub(crate) struct Interpreter<'csg> {
     float_stack: Vec<Float>,
     vec2_stack: Vec<Vec2>,
     vec3_stack: Vec<Vec3>,
@@ -694,7 +694,7 @@ macro_rules! normalise {
 }
 
 impl<'csg> Interpreter<'csg> {
-    pub fn new(csg: &'csg CSG) -> Self {
+    pub(crate) fn new(csg: &'csg CSG) -> Self {
         Interpreter {
             float_stack: vec![],
             vec2_stack: vec![],
@@ -755,7 +755,7 @@ impl<'csg> Interpreter<'csg> {
         );
     }*/
 
-    pub fn scene(&mut self, p: Vec3) -> Float {
+    pub(crate) fn scene(&mut self, p: Vec3) -> Float {
         self.clear_stacks();
         self.push(p);
 

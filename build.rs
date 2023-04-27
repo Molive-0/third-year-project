@@ -15,7 +15,7 @@ fn main() -> io::Result<()> {
     let f = BufReader::new(f);
     let mut out = "#[allow(non_snake_case)]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum InputTypes{
+    pub(crate) enum InputTypes{
         #[allow(non_snake_case)]
         Float,
         #[allow(non_snake_case)]
@@ -35,13 +35,13 @@ fn main() -> io::Result<()> {
     #[repr(u16)]
     #[allow(non_snake_case)]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum InstructionSet{
+    pub(crate) enum InstructionSet{
 
     "
     .to_owned();
 
     let mut outputimpl = "
-    pub fn output(&self) -> Vec<InputTypes>
+    pub(crate) fn output(&self) -> Vec<InputTypes>
     {
         match self {
 
@@ -49,7 +49,7 @@ fn main() -> io::Result<()> {
     .to_owned();
 
     let mut inputimpl = "
-    pub fn input(&self) -> Vec<InputTypes>
+    pub(crate) fn input(&self) -> Vec<InputTypes>
     {
         match self {
 
@@ -65,13 +65,9 @@ fn main() -> io::Result<()> {
 
         let name = &entries[0][11..entries[0].len() - 12];
 
-        out += &format!(
-            "#[allow(non_snake_case)]\n#[allow(dead_code)]\n{name}={index},\n"
-        );
+        out += &format!("#[allow(non_snake_case)]\n#[allow(dead_code)]\n{name}={index},\n");
 
-        inputimpl += &format!(
-            "#[allow(non_snake_case)]\nInstructionSet::{name} => vec!["
-        );
+        inputimpl += &format!("#[allow(non_snake_case)]\nInstructionSet::{name} => vec![");
         for input in entries[1].split(' ').map(str::trim) {
             if input.is_empty() {
                 continue;
@@ -89,9 +85,7 @@ fn main() -> io::Result<()> {
         }
         inputimpl += "],\n";
 
-        outputimpl += &format!(
-            "#[allow(non_snake_case)]\nInstructionSet::{name} => vec!["
-        );
+        outputimpl += &format!("#[allow(non_snake_case)]\nInstructionSet::{name} => vec![");
         for output in entries[2].split(' ').map(str::trim) {
             if output.is_empty() {
                 continue;

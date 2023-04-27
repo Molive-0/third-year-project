@@ -79,7 +79,7 @@ use crate::instruction_set::InstructionSet;
 
 mod interpreter;
 
-pub type MemoryAllocator = StandardMemoryAllocator;
+pub(crate) type MemoryAllocator = StandardMemoryAllocator;
 
 fn main() {
     let library = VulkanLibrary::new().expect("Vulkan is not installed???");
@@ -1103,7 +1103,7 @@ where
 
     println!("Recompiling implicit pipeline... (may take up to 10 minutes)");
 
-    let mut implicit_pipeline = GraphicsPipeline::start()
+    let implicit_pipeline = GraphicsPipeline::start()
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
         .vertex_input_state(OVertex::per_vertex())
         .input_assembly_state(InputAssemblyState::new())

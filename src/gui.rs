@@ -11,27 +11,27 @@ fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct PreviousDebug {
-    pub bounding_boxes: bool,
-    pub disable_meshcull: bool,
-    pub disable_meshscale1: bool,
-    pub disable_meshscale2: bool,
-    pub disable_taskcull: bool,
-    pub brute_force: bool,
+pub(crate) struct PreviousDebug {
+    pub(crate) bounding_boxes: bool,
+    pub(crate) disable_meshcull: bool,
+    pub(crate) disable_meshscale1: bool,
+    pub(crate) disable_meshscale2: bool,
+    pub(crate) disable_taskcull: bool,
+    pub(crate) brute_force: bool,
 }
 
 #[derive(Debug)]
-pub struct GState {
-    pub cursor_sensitivity: f32,
-    pub move_speed: f32,
+pub(crate) struct GState {
+    pub(crate) cursor_sensitivity: f32,
+    pub(crate) move_speed: f32,
 
-    pub meshes: Vec<Mesh>,
-    pub lights: Vec<Light>,
-    pub csg: Vec<CSG>,
+    pub(crate) meshes: Vec<Mesh>,
+    pub(crate) lights: Vec<Light>,
+    pub(crate) csg: Vec<CSG>,
 
-    pub fps: [f64; 128],
+    pub(crate) fps: [f64; 128],
 
-    pub debug: PreviousDebug,
+    pub(crate) debug: PreviousDebug,
 }
 
 impl Default for GState {
@@ -51,7 +51,7 @@ impl Default for GState {
     }
 }
 
-pub fn gui_up(gui: &mut Gui, state: &mut GState) {
+pub(crate) fn gui_up(gui: &mut Gui, state: &mut GState) {
     gui.immediate_ui(|gui| {
         let ctx = gui.context();
         egui::SidePanel::left(Id::new("main_left"))
@@ -121,11 +121,8 @@ pub fn gui_up(gui: &mut Gui, state: &mut GState) {
                         {
                             state.lights.remove(i);
                         }
-                        if (state.lights.len() < 32) {
-                            if ui.small_button("add light").clicked()
-                            {
-                                state.lights.push(Light::default());
-                            }
+                        if state.lights.len() < 32 && ui.small_button("add light").clicked() {
+                            state.lights.push(Light::default());
                         }
 
                         let fps: PlotPoints = state.fps.iter().enumerate().map(|(x,y)| [x as f64,*y]).collect::<Vec<_>>().into();

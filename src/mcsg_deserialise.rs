@@ -8,12 +8,12 @@ use serde::de::{
     Visitor,
 };
 use serde::{forward_to_deserialize_any, Deserialize};
-use utf8::{BufReadDecoder};
+use utf8::BufReadDecoder;
 
 type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug)]
-pub enum Error {
+pub(crate) enum Error {
     Message(String),
     UTF8(String),
     TrailingCharacters,
@@ -47,7 +47,7 @@ impl serde::ser::Error for Error {
     }
 }
 
-pub struct Deserializer<'de> {
+pub(crate) struct Deserializer<'de> {
     // This string starts with the input data and characters are truncated off
     // the beginning as data is parsed.
     input: BufReadDecoder<BufReader<&'de mut dyn Read>>,
@@ -61,7 +61,7 @@ impl<'de> Deserializer<'de> {
     // `serde_json::from_str(...)` while advanced use cases that require a
     // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
 
-    pub fn from_reader(input: &'de mut dyn Read) -> Self {
+    pub(crate) fn from_reader(input: &'de mut dyn Read) -> Self {
         Deserializer {
             input: BufReadDecoder::new(BufReader::new(input)),
             read_buf: String::new(),
@@ -70,12 +70,12 @@ impl<'de> Deserializer<'de> {
     }
 }
 
-// By convention, the public API of a Serde deserializer is one or more
+// By convention, the pub(crate)lic API of a Serde deserializer is one or more
 // `from_xyz` methods such as `from_str`, `from_bytes`, or `from_reader`
 // depending on what Rust types the deserializer is able to consume as input.
 //
 // This basic deserializer supports only `from_str`.
-pub fn from_reader<'a, T>(s: &'a mut dyn Read) -> Result<T>
+pub(crate) fn from_reader<'a, T>(s: &'a mut dyn Read) -> Result<T>
 where
     T: Deserialize<'a>,
 {

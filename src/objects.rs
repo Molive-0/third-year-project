@@ -6,8 +6,8 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{
-    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix,
-    Vector2, Vector3, Vector4,
+    Deg, EuclideanSpace, Euler, Matrix2, Matrix3, Matrix4, Point3, SquareMatrix, Vector2, Vector3,
+    Vector4,
 };
 use obj::{LoadConfig, ObjData, ObjError};
 use serde::{Deserialize, Serialize};
@@ -19,15 +19,16 @@ use vulkano::{
 use crate::instruction_set::InstructionSet;
 use crate::{mcsg_deserialise::from_reader, MemoryAllocator};
 
-pub const PLATONIC_SOLIDS: [(&str, &[u8]); 1] = [("Buny", include_bytes!("bunny.obj"))];
-pub const CSG_SOLIDS: [(&str, &[u8]); 1] = [("Primitives", include_bytes!("primitive.mcsg"))];
+pub(crate) const PLATONIC_SOLIDS: [(&str, &[u8]); 1] = [("Buny", include_bytes!("bunny.obj"))];
+pub(crate) const CSG_SOLIDS: [(&str, &[u8]); 1] =
+    [("Primitives", include_bytes!("primitive.mcsg"))];
 
 // We now create a buffer that will store the shape of our triangle.
 // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
 // particular example, it doesn't actually change the in-memory representation.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod, Vertex)]
-pub struct OVertex {
+pub(crate) struct OVertex {
     #[format(R32G32B32_SFLOAT)]
     position: [f32; 3],
     #[format(R32G32B32_SFLOAT)]
@@ -35,34 +36,34 @@ pub struct OVertex {
 }
 
 #[derive(Debug)]
-pub struct Mesh {
-    pub name: String,
-    pub vertices: Subbuffer<[OVertex]>,
-    pub indices: Subbuffer<[u32]>,
-    pub pos: Point3<f32>,
-    pub rot: Euler<Deg<f32>>,
-    pub scale: Vector3<f32>,
+pub(crate) struct Mesh {
+    pub(crate) name: String,
+    pub(crate) vertices: Subbuffer<[OVertex]>,
+    pub(crate) indices: Subbuffer<[u32]>,
+    pub(crate) pos: Point3<f32>,
+    pub(crate) rot: Euler<Deg<f32>>,
+    pub(crate) scale: Vector3<f32>,
 }
 
 #[derive(Debug)]
-pub struct CSG {
-    pub name: String,
-    pub parts: Vec<CSGPart>,
-    pub pos: Point3<f32>,
-    pub rot: Euler<Deg<f32>>,
-    pub scale: Vector3<f32>,
+pub(crate) struct CSG {
+    pub(crate) name: String,
+    pub(crate) parts: Vec<CSGPart>,
+    pub(crate) pos: Point3<f32>,
+    pub(crate) rot: Euler<Deg<f32>>,
+    pub(crate) scale: Vector3<f32>,
 }
 
-pub type Float = f64;
-pub type Vec2 = Vector2<Float>;
-pub type Vec3 = Vector3<Float>;
-pub type Vec4 = Vector4<Float>;
-pub type Mat2 = Matrix2<Float>;
-pub type Mat3 = Matrix3<Float>;
-pub type Mat4 = Matrix4<Float>;
+pub(crate) type Float = f64;
+pub(crate) type Vec2 = Vector2<Float>;
+pub(crate) type Vec3 = Vector3<Float>;
+pub(crate) type Vec4 = Vector4<Float>;
+pub(crate) type Mat2 = Matrix2<Float>;
+pub(crate) type Mat3 = Matrix3<Float>;
+pub(crate) type Mat4 = Matrix4<Float>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Inputs {
+pub(crate) enum Inputs {
     #[default]
     Variable,
     Float(Float),
@@ -76,15 +77,15 @@ pub enum Inputs {
 
 #[repr(C)]
 #[derive(Clone, Debug)]
-pub struct CSGPart {
-    pub code: u16,
-    pub opcode: InstructionSet,
-    pub constants: Vec<Inputs>,
-    pub material: Option<Mat4>,
+pub(crate) struct CSGPart {
+    pub(crate) code: u16,
+    pub(crate) opcode: InstructionSet,
+    pub(crate) constants: Vec<Inputs>,
+    pub(crate) material: Option<Mat4>,
 }
 
 impl CSGPart {
-    pub fn opcode(opcode: InstructionSet, inputs: Vec<Inputs>) -> CSGPart {
+    pub(crate) fn opcode(opcode: InstructionSet, inputs: Vec<Inputs>) -> CSGPart {
         CSGPart {
             code: (opcode as u16 & 1023)
                 | inputs
@@ -104,7 +105,7 @@ impl CSGPart {
         }
     }
 
-    pub fn opcode_with_material(
+    pub(crate) fn opcode_with_material(
         opcode: InstructionSet,
         inputs: Vec<Inputs>,
         material: Mat4,
@@ -115,7 +116,7 @@ impl CSGPart {
     }
 }
 
-pub fn load_obj(
+pub(crate) fn load_obj(
     memory_allocator: &MemoryAllocator,
     input: &mut dyn Read,
     name: String,
@@ -331,7 +332,7 @@ fn get_half(o: &HashMap<String, String>) -> Result<Half, String> {
     })
 }
 
-pub fn load_csg(
+pub(crate) fn load_csg(
     _memory_allocator: &MemoryAllocator,
     input: &mut dyn Read,
     name: String,
@@ -400,13 +401,13 @@ pub fn load_csg(
 }
 
 #[derive(Debug)]
-pub struct Light {
-    pub pos: Point3<f32>,
-    pub colour: Vector3<f32>,
+pub(crate) struct Light {
+    pub(crate) pos: Point3<f32>,
+    pub(crate) colour: Vector3<f32>,
 }
 
 impl Light {
-    pub fn new(pos: [f32; 3], colour: [f32; 3], intensity: f32) -> Light {
+    pub(crate) fn new(pos: [f32; 3], colour: [f32; 3], intensity: f32) -> Light {
         let c: Vector3<f32> = colour.into();
         Light {
             pos: pos.into(),
