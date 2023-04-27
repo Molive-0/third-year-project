@@ -1172,15 +1172,15 @@ struct Subbuffers {
 
 impl PartialEq<InputTypes> for Inputs {
     fn eq(&self, other: &InputTypes) -> bool {
-        match self {
-            &Inputs::Variable => true,
-            &Inputs::Float(_) => *other == InputTypes::Float,
-            &Inputs::Vec2(_) => *other == InputTypes::Vec2,
-            &Inputs::Vec3(_) => *other == InputTypes::Vec3,
-            &Inputs::Vec4(_) => *other == InputTypes::Vec4,
-            &Inputs::Mat2(_) => *other == InputTypes::Mat2,
-            &Inputs::Mat3(_) => *other == InputTypes::Mat3,
-            &Inputs::Mat4(_) => *other == InputTypes::Mat4,
+        match *self {
+            Inputs::Variable => true,
+            Inputs::Float(_) => *other == InputTypes::Float,
+            Inputs::Vec2(_) => *other == InputTypes::Vec2,
+            Inputs::Vec3(_) => *other == InputTypes::Vec3,
+            Inputs::Vec4(_) => *other == InputTypes::Vec4,
+            Inputs::Mat2(_) => *other == InputTypes::Mat2,
+            Inputs::Mat3(_) => *other == InputTypes::Mat3,
+            Inputs::Mat4(_) => *other == InputTypes::Mat4,
         }
     }
 }
@@ -1322,8 +1322,8 @@ fn object_size_dependent_setup(
                     continue 'nextcsg;
                 }
                 if actual == &Inputs::Variable {
-                    match expected {
-                        &InputTypes::Float => match runtime_floats.pop() {
+                    match *expected {
+                        InputTypes::Float => match runtime_floats.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1336,7 +1336,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Vec2 => match runtime_vec2s.pop() {
+                        InputTypes::Vec2 => match runtime_vec2s.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1349,7 +1349,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Vec3 => match runtime_vec3s.pop() {
+                        InputTypes::Vec3 => match runtime_vec3s.pop() {
                             Some(u) => {
                                 if u != usize::MAX {
                                     if dependencies[u][0] != u8::MAX {
@@ -1364,7 +1364,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Vec4 => match runtime_vec4s.pop() {
+                        InputTypes::Vec4 => match runtime_vec4s.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1377,7 +1377,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Mat2 => match runtime_mat2s.pop() {
+                        InputTypes::Mat2 => match runtime_mat2s.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1390,7 +1390,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Mat3 => match runtime_mat3s.pop() {
+                        InputTypes::Mat3 => match runtime_mat3s.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1403,7 +1403,7 @@ fn object_size_dependent_setup(
                                 continue 'nextcsg;
                             }
                         },
-                        &InputTypes::Mat4 => match runtime_mat4s.pop() {
+                        InputTypes::Mat4 => match runtime_mat4s.pop() {
                             Some(u) => {
                                 if dependencies[u][0] != u8::MAX {
                                     dependencies[u][1] = index as u8
@@ -1418,15 +1418,15 @@ fn object_size_dependent_setup(
                         },
                     }
                 } else {
-                    match actual {
-                        &Inputs::Float(f) => floats.push(f as f32),
-                        &Inputs::Vec2(f) => vec2s.push(f.map(|x| x as f32).into()),
-                        &Inputs::Vec3(f) => vec4s.push(f.map(|x| x as f32).extend(1.).into()),
-                        &Inputs::Vec4(f) => vec4s.push(f.map(|x| x as f32).into()),
-                        &Inputs::Mat2(f) => mat2s.push(f64tof32(f.into())),
-                        &Inputs::Mat3(f) => mat3s.push(f64tof32(f.into())),
-                        &Inputs::Mat4(f) => mat4s.push(f64tof32(f.into())),
-                        &Inputs::Variable => unreachable!(),
+                    match *actual {
+                        Inputs::Float(f) => floats.push(f as f32),
+                        Inputs::Vec2(f) => vec2s.push(f.map(|x| x as f32).into()),
+                        Inputs::Vec3(f) => vec4s.push(f.map(|x| x as f32).extend(1.).into()),
+                        Inputs::Vec4(f) => vec4s.push(f.map(|x| x as f32).into()),
+                        Inputs::Mat2(f) => mat2s.push(f64tof32(f.into())),
+                        Inputs::Mat3(f) => mat3s.push(f64tof32(f.into())),
+                        Inputs::Mat4(f) => mat4s.push(f64tof32(f.into())),
+                        Inputs::Variable => unreachable!(),
                     }
                 }
             }

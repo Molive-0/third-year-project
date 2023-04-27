@@ -200,7 +200,7 @@ type MCSGObject = HashMap<String, String>;
 type MCSGCSG = Vec<MCSGCSGPart>;
 type MCSGCSGPart = HashMap<String, String>;
 
-fn matrix3_from_string(input: &String) -> Result<Matrix3<f32>, String> {
+fn matrix3_from_string(input: &str) -> Result<Matrix3<f32>, String> {
     let vec = input
         .split(' ')
         .map(|s| s.parse::<f32>())
@@ -211,7 +211,7 @@ fn matrix3_from_string(input: &String) -> Result<Matrix3<f32>, String> {
     Ok(*matrix)
 }
 
-fn vector3_from_string(input: &String) -> Result<Vector3<f32>, String> {
+fn vector3_from_string(input: &str) -> Result<Vector3<f32>, String> {
     let vec = input
         .split(' ')
         .map(|s| s.parse::<f32>())
@@ -222,7 +222,7 @@ fn vector3_from_string(input: &String) -> Result<Vector3<f32>, String> {
     Ok(*vector)
 }
 
-fn point3_from_string(input: &String) -> Result<Point3<f32>, String> {
+fn point3_from_string(input: &str) -> Result<Point3<f32>, String> {
     let vec = input
         .split(' ')
         .map(|s| s.parse::<f32>())
@@ -242,16 +242,19 @@ fn get_trs(o: &HashMap<String, String>) -> Result<TRS, String> {
     Ok(TRS {
         translation: o
             .get("t")
+            .map(String::as_str)
             .map(point3_from_string)
             .transpose()?
             .unwrap_or(Point3::origin()),
         rotation: o
             .get("r")
+            .map(String::as_str)
             .map(matrix3_from_string)
             .transpose()?
             .unwrap_or(Matrix3::identity()),
         scale: o
             .get("s")
+            .map(String::as_str)
             .map(vector3_from_string)
             .transpose()?
             .unwrap_or(Vector3 {
@@ -263,6 +266,7 @@ fn get_trs(o: &HashMap<String, String>) -> Result<TRS, String> {
 }
 fn get_color(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
     Ok(o.get("color")
+        .map(String::as_str)
         .map(vector3_from_string)
         .transpose()?
         .unwrap_or(Vector3 {
@@ -274,6 +278,7 @@ fn get_color(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
 
 fn get_rgb(o: &HashMap<String, String>) -> Result<Vector3<f32>, String> {
     Ok(o.get("rgb")
+        .map(String::as_str)
         .map(vector3_from_string)
         .transpose()?
         .unwrap_or(Vector3 {
