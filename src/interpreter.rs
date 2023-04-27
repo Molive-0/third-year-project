@@ -14,15 +14,6 @@ pub struct Interpreter<'csg> {
     mat2_stack: Vec<Mat2>,
     mat3_stack: Vec<Mat3>,
     mat4_stack: Vec<Mat4>,
-
-    float_const_head: usize,
-    vec2_const_head: usize,
-    vec3_const_head: usize,
-    vec4_const_head: usize,
-    mat2_const_head: usize,
-    mat3_const_head: usize,
-    mat4_const_head: usize,
-
     csg: &'csg CSG,
 }
 
@@ -712,13 +703,6 @@ impl<'csg> Interpreter<'csg> {
             mat2_stack: vec![],
             mat3_stack: vec![],
             mat4_stack: vec![],
-            float_const_head: 0,
-            vec2_const_head: 0,
-            vec3_const_head: 0,
-            vec4_const_head: 0,
-            mat2_const_head: 0,
-            mat3_const_head: 0,
-            mat4_const_head: 0,
             csg,
         }
     }
@@ -731,13 +715,6 @@ impl<'csg> Interpreter<'csg> {
         self.mat2_stack.clear();
         self.mat3_stack.clear();
         self.mat4_stack.clear();
-        self.float_const_head = 0;
-        self.vec2_const_head = 0;
-        self.vec3_const_head = 0;
-        self.vec4_const_head = 0;
-        self.mat2_const_head = 0;
-        self.mat3_const_head = 0;
-        self.mat4_const_head = 0;
     }
 
     //const masklen: usize = 29;

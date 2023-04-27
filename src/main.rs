@@ -432,11 +432,14 @@ fn main() {
             render_pass.clone(),
             &mut viewport,
             
-            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32},
+            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32,
+                BRUTE_FORCE:gstate.debug.brute_force as u32,},
             implicit_ms::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_meshcull as u32,
                 DISABLE_SCALING_1:gstate.debug.disable_meshscale1 as u32,
-                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32},
+                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32,
+                BRUTE_FORCE:gstate.debug.brute_force as u32,},
             implicit_ts::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_taskcull as u32},
+            gstate.debug.brute_force,
         );
 
     let command_buffer_allocator =
@@ -625,11 +628,14 @@ fn main() {
                             &new_images,
                             render_pass.clone(),
                             &mut viewport,
-                            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32},
+                            implicit_fs::SpecializationConstants {DISABLE_TRACE:gstate.debug.bounding_boxes as u32,
+                                BRUTE_FORCE:gstate.debug.brute_force as u32},
                             implicit_ms::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_meshcull as u32,
                                 DISABLE_SCALING_1:gstate.debug.disable_meshscale1 as u32,
-                                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32},
+                                DISABLE_SCALING_2:gstate.debug.disable_meshscale2 as u32,
+                                BRUTE_FORCE:gstate.debug.brute_force as u32},
                             implicit_ts::SpecializationConstants {DISABLE_TRACE:gstate.debug.disable_taskcull as u32},
+                            gstate.debug.brute_force,
                         );
                     recreate_swapchain = false;
                     prevdub = gstate.debug;
@@ -1006,6 +1012,7 @@ fn window_size_dependent_setup<Fs,Ms,Ts>(
     implicit_fs_specs: Fs,
     implicit_ms_specs: Ms,
     implicit_ts_specs: Ts,
+    brute_force: bool,
 ) -> ([Arc<GraphicsPipeline>; 2], Vec<Arc<Framebuffer>>)
 where
     Fs: SpecializationConstants + Clone,
@@ -1096,7 +1103,7 @@ where
 
     println!("Recompiling implicit pipeline... (may take up to 10 minutes)");
 
-    let implicit_pipeline = GraphicsPipeline::start()
+    let mut implicit_pipeline = GraphicsPipeline::start()
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
         .vertex_input_state(OVertex::per_vertex())
         .input_assembly_state(InputAssemblyState::new())
@@ -1108,7 +1115,6 @@ where
             },
         ]))
         .fragment_shader(implicit_fs.entry_point("main").unwrap(), implicit_fs_specs)
-        .task_shader(implicit_ts.entry_point("main").unwrap(), implicit_ts_specs)
         .mesh_shader(implicit_ms.entry_point("main").unwrap(), implicit_ms_specs)
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .rasterization_state(RasterizationState {
@@ -1123,13 +1129,22 @@ where
                 .unwrap(),
             sample_shading: Some(0.5),
             ..Default::default()
-        })
-        .build(allocator.device().clone())
-        .unwrap();
+        });
+    
+    let built_implicit_pipeline = 
+        if !brute_force {
+            implicit_pipeline.task_shader(implicit_ts.entry_point("main").unwrap(),implicit_ts_specs)
+            .build(allocator.device().clone())
+            .unwrap()
+        } else {
+            implicit_pipeline
+            .build(allocator.device().clone())
+            .unwrap()
+        };
 
     println!("Implicit pipeline compiled");
 
-    ([mesh_pipeline, implicit_pipeline], framebuffers)
+    ([mesh_pipeline, built_implicit_pipeline], framebuffers)
 }
 
 

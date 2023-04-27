@@ -8,6 +8,7 @@
 #ifdef implicit
 
 layout (constant_id = 0) const bool DISABLE_TRACE = false;
+layout (constant_id = 1) const bool BRUTE_FORCE = false;
 
 layout(location=0)in VertexInput
 {
@@ -53,7 +54,7 @@ const uint MAX_STEPS=1;
 const float EPSILON=.0001;
 const uint MAX_STEPS=50;
 #define NEARPLANE 0.
-#define FARPLANE length(vec3(10))
+float FARPLANE;
 #define gl_GlobalInvocationID uvec3(1)
 #endif
 #define interval_frags
@@ -109,7 +110,27 @@ vec2 spheretracing(vec3 ori,vec3 dir,out vec3 p){
 //Implicit Surface Entrypoint
 void main(){
     //default_mask();
-    mask = fragmentpassmasks.masks[gl_PrimitiveID];
+    if (BRUTE_FORCE)
+    {
+        default_mask();
+    }
+    else {
+        mask = fragmentpassmasks.masks[gl_PrimitiveID];
+    }
+
+#ifndef debug
+    desc = scene_description.desc[(DescriptionIndex)+1];
+    vec3 bottomleft = vec3(desc.bounds[3],desc.bounds[4],desc.bounds[5]);
+    vec3 topright   = vec3(desc.bounds[0],desc.bounds[1],desc.bounds[2]);
+    if (BRUTE_FORCE)
+    {
+        FARPLANE = length((topright-bottomleft));
+    }
+    else {
+        FARPLANE = length((topright-bottomleft) * vec3(0.25*0.25,0.25*0.25,0.25*0.5));
+    }
+#endif
+
     vec3 raypos=vertexInput.position.xyz;
     vec3 p;
     vec3 raydir=normalize(raypos-(inverse(pc.world)*vec4(camera_uniforms.campos,1)).xyz);

@@ -17,6 +17,7 @@ pub struct PreviousDebug {
     pub disable_meshscale1: bool,
     pub disable_meshscale2: bool,
     pub disable_taskcull: bool,
+    pub brute_force: bool,
 }
 
 #[derive(Debug)]
@@ -138,6 +139,7 @@ pub fn gui_up(gui: &mut Gui, state: &mut GState) {
                         ui.toggle_value(&mut state.debug.disable_meshscale1, "Disable mesh shader scaling part 1");
                         ui.toggle_value(&mut state.debug.disable_meshscale2, "Disable mesh shader scaling part 2");
                         ui.toggle_value(&mut state.debug.disable_taskcull, "Disable task shader culling");
+                        ui.toggle_value(&mut state.debug.brute_force, "Brute force the render (use no new techniques)");
                     });
                 });
             });
