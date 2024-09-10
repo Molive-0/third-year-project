@@ -40,8 +40,8 @@ rand = "0.8.5"
 
 # using latest gits
 [patch.crates-io]
-vulkano = { path = "../vulkano/vulkano" }
-vulkano-shaders = { path = "../vulkano/vulkano-shaders" }
-vulkano-win = { path = "../vulkano/vulkano-win" }
-vulkano-util = { path = "../vulkano/vulkano-util" }
+vulkano = { git = "https://github.com/Molive-0/vulkano" }
+vulkano-shaders = { git = "https://github.com/Molive-0/vulkano" }
+vulkano-win = { git = "https://github.com/Molive-0/vulkano" }
+vulkano-util = { git = "https://github.com/Molive-0/vulkano" }
 egui_winit_vulkano = { git = "https://github.com/Molive-0/egui_winit_vulkano" }
